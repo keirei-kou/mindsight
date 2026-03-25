@@ -45,15 +45,44 @@ export function cryptoRandom() {
   return arr[0] / (0xFFFFFFFF + 1);
 }
 
+// Crypto-secure integer in [0, maxExclusive) with rejection sampling (avoids modulo bias).
+export function cryptoRandomInt(maxExclusive) {
+  if (maxExclusive <= 0) return 0;
+  // Support non-browser environments defensively.
+  if (typeof crypto === "undefined" || !crypto.getRandomValues) {
+    return Math.floor(Math.random() * maxExclusive);
+  }
+
+  const maxUint32 = 0xffffffff;
+  const limit = maxUint32 - ((maxUint32 + 1) % maxExclusive);
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const arr = new Uint32Array(1);
+    crypto.getRandomValues(arr);
+    const v = arr[0];
+    if (v < limit) return v % maxExclusive;
+  }
+}
+
+export function cryptoShuffle(arr) {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = cryptoRandomInt(i + 1);
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 export function generateSlots(colors, count, mode) {
   if (mode === "stratified") {
     const sets = Math.ceil(count / colors.length);
     const pool = Array.from({ length: sets }, () => [...colors]).flat();
     for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(cryptoRandom() * (i + 1));
+      const j = cryptoRandomInt(i + 1);
       [pool[i], pool[j]] = [pool[j], pool[i]];
     }
     return pool.slice(0, count);
   }
-  return Array.from({ length: count }, () => colors[Math.floor(cryptoRandom() * colors.length)]);
+  return Array.from({ length: count }, () => colors[cryptoRandomInt(colors.length)]);
 }

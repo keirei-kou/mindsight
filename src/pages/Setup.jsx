@@ -244,7 +244,7 @@ export function Setup({ onStart }) {
               const on = enabled.has(c.name);
               return (
                 <button key={c.name} title={on && enabled.size <= 2 ? "Minimum 2 active items, 2 rounds" : c.name} onClick={() => toggleItem(c.name)} style={{ background: on ? "#1c1c28" : "transparent", border: `2px solid ${on ? c.hex : "#252530"}`, borderRadius: "8px", padding: "7px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", opacity: on ? 1 : 0.7, transition: "all 0.12s", fontFamily: "inherit", position: "relative" }}>
-                  <span style={{ fontSize: "1.1rem", lineHeight: 1 }}>{c.symbol}</span>
+                  <span style={{ fontSize: "1.1rem", lineHeight: 1, color: on ? "white" : "#888", filter: on ? `drop-shadow(0 0 6px ${c.hex}66)` : "none" }}>{c.symbol}</span>
                   <span style={{ fontSize: "0.78rem", color: on ? c.hex : "#888" }}>{c.name}</span>
                   {on && preview && (
                     <span style={{ position: "absolute", top: "-10px", right: "-10px", background: preview.counts[c.name] > 0 ? c.hex : "#252535", color: preview.counts[c.name] > 0 ? "white" : "#666", borderRadius: "99px", fontSize: "0.7rem", fontWeight: 700, minWidth: "22px", height: "22px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", lineHeight: 1, border: "2px solid #111118", boxShadow: preview.counts[c.name] > 0 ? `0 0 6px ${c.hex}88` : "none" }}>

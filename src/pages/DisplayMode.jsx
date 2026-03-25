@@ -4,6 +4,13 @@ export function DisplayMode() {
   const [card, setCard] = useState(null);
 
   useEffect(() => {
+    // OBS/browser-source capture needs #display to fill the viewport edge-to-edge.
+    // The global #root styles add a border; we disable them via a body class.
+    document.body.classList.add("mindsight-display-mode");
+    return () => document.body.classList.remove("mindsight-display-mode");
+  }, []);
+
+  useEffect(() => {
     const channel = new BroadcastChannel("mindsight-display");
     channel.onmessage = (e) => {
       if (e.data?.type === "card") setCard(e.data.card);
@@ -33,12 +40,14 @@ export function DisplayMode() {
       })()}
       {card && isShapes && (
         <>
-          <div style={{ fontSize: "45vw", lineHeight: 0.85, color: card.hex, filter: `drop-shadow(0 0 80px ${card.hex}aa)` }}>{card.symbol}</div>
-          <div style={{ fontSize: "10vw", fontWeight: 700, color: "white", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.2em", textTransform: "uppercase", textShadow: `0 0 60px ${card.hex}` }}>{card.name}</div>
+          <div style={{ fontSize: card.name === "Oval" ? "30vw" : "36vw", lineHeight: 0.85, color: card.hex, filter: `drop-shadow(0 0 80px ${card.hex}aa)` }}>{card.symbol}</div>
+          <div style={{ fontSize: card.name === "Oval" ? "7vw" : "8vw", fontWeight: 700, color: "white", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.2em", textTransform: "uppercase", textShadow: `0 0 30px ${card.hex}` }}>
+            {card.name}
+          </div>
         </>
       )}
       {card && isColors && (
-        <div style={{ fontSize: "18vw", fontWeight: 700, color: "rgba(255,255,255,0.15)", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.3em", textTransform: "uppercase" }}>{card.name}</div>
+        <></>
       )}
     </div>
   );

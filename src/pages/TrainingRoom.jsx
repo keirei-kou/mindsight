@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { itemMap, accuracyScore, proximityScore, patternLabel } from '../utils.js';
+import { itemMap, accuracyScore, proximityScore, patternLabel, cryptoShuffle } from '../utils.js';
 
 function speak(text) {
   const u = new SpeechSynthesisUtterance(text);
@@ -22,12 +22,18 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
   const cardStartTime         = useRef(null);
   const lookup                = itemMap(items);
   const latest                = useRef({});
+  const [displayItems, setDisplayItems] = useState(items);
+  const displayItemsRef = useRef(items);
   const isColors              = category === "Colors";
   const isNumbers             = category === "Numbers";
   const isShapes              = category === "Shapes";
   const target                = slots ? slots[slotIdx] : null;
   latest.current = { phase, slotIdx, guesses, results, target, itemIdx };
   doneRef.current = done;
+
+  useEffect(() => {
+    displayItemsRef.current = displayItems;
+  }, [displayItems]);
 
   useEffect(() => {
     if (phase === "test" && target) {
@@ -38,9 +44,26 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
   }, [slotIdx, phase]);
 
   useEffect(() => {
-    setBgItem(items[itemIdx]);
+    const deck = displayItemsRef.current;
+    setBgItem(deck[itemIdx]);
     itemIdxRef.current = itemIdx;
   }, [itemIdx]);
+
+  // Ensure each test card starts at option index 0, but with a mixed display order.
+  useEffect(() => {
+    if (phase === "test") {
+      const shuffled = cryptoShuffle(items);
+      setDisplayItems(shuffled);
+      itemIdxRef.current = 0;
+      setItemIdx(0);
+      setBgItem(shuffled[0]);
+    } else {
+      setDisplayItems(items);
+      itemIdxRef.current = 0;
+      setItemIdx(0);
+      setBgItem(items[0]);
+    }
+  }, [phase, slotIdx, items]);
 
   useEffect(() => {
     const ords = ["First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth"];
@@ -49,8 +72,9 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
       if (e.key.toLowerCase() === "a") {
         e.preventDefault();
         setItemIdx(prev => {
-          const next = prev === 0 ? items.length - 1 : prev - 1;
-          phase === "test" ? speak(ords[next] || String(next + 1)) : speak(items[next].name);
+          const deck = displayItemsRef.current;
+          const next = prev === 0 ? deck.length - 1 : prev - 1;
+          phase === "test" ? speak(ords[next] || String(next + 1)) : speak(deck[next].name);
           return next;
         });
         return;
@@ -58,8 +82,9 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
       if (e.key.toLowerCase() === "d") {
         e.preventDefault();
         setItemIdx(prev => {
-          const next = prev === items.length - 1 ? 0 : prev + 1;
-          phase === "test" ? speak(ords[next] || String(next + 1)) : speak(items[next].name);
+          const deck = displayItemsRef.current;
+          const next = prev === deck.length - 1 ? 0 : prev + 1;
+          phase === "test" ? speak(ords[next] || String(next + 1)) : speak(deck[next].name);
           return next;
         });
         return;
@@ -68,7 +93,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
         e.preventDefault();
         phase === "test"
           ? speak((slotIdx + 1) + " of " + slots.length + " cards.")
-          : speak((itemIdx + 1) + " of " + items.length + " items.");
+          : speak((itemIdx + 1) + " of " + displayItemsRef.current.length + " items.");
         return;
       }
       if (e.key.toLowerCase() === "x" && phase === "test" && !doneRef.current) {
@@ -83,7 +108,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
           setDone(true); doneRef.current = true;
           setTimeout(() => speak("Test finished. Press space to go to results."), 600);
         } else {
-          setTimeout(() => { setSlotIdx(i => i + 1); setGuesses([]); setItemIdx(0); }, 800);
+          setTimeout(() => { setSlotIdx(i => i + 1); setGuesses([]); }, 800);
         }
         return;
       }
@@ -92,7 +117,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
         if (phase === "training") { setPhase("test"); speak("First card."); return; }
         if (doneRef.current) { onFinish({ name, results: resultsRef.current, colors: items, category }); return; }
         if (!target) return;
-        const guessName = items[itemIdxRef.current].name;
+        const guessName = displayItemsRef.current[itemIdxRef.current].name;
         if (guesses.length > 0 && guesses[guesses.length - 1].color === target.name) return;
         const now = Date.now();
         const newGuesses = [...guesses, { color: guessName, ts: now }];
@@ -115,7 +140,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
             setDone(true); doneRef.current = true;
             setTimeout(() => speak("Test finished. Press space to go to results."), 600);
           } else {
-            setTimeout(() => { setSlotIdx(i => i + 1); setGuesses([]); setItemIdx(0); }, 1000);
+            setTimeout(() => { setSlotIdx(i => i + 1); setGuesses([]); }, 1000);
           }
         } else {
           speak("Different.");
@@ -138,6 +163,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
 
   const bg = (isNumbers || isShapes) ? "#1a1a2a" : (bgItem?.hex ?? "#111118");
   const targetItem = target ? lookup[target.name] : null;
+  const isOval = bgItem?.name === "Oval";
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: "'Georgia', serif", background: bg, transition: "background 0.25s" }}>
@@ -164,8 +190,11 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
         })()}
         {isShapes && bgItem && (
           <>
-            <div style={{ fontSize: "18rem", lineHeight: 0.9, color: bgItem.hex, filter: `drop-shadow(0 0 50px ${bgItem.hex}aa)` }}>{bgItem.symbol}</div>
-            <div style={{ fontSize: "5rem", fontWeight: 700, color: "white", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.2em", textTransform: "uppercase", textShadow: `0 0 30px ${bgItem.hex}` }}>{bgItem.name}</div>
+            {/* Fixed-height wrapper so the word top edge stays aligned across shapes. */}
+            <div style={{ height: "20.25rem", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+              <div style={{ fontSize: isOval ? "13.5rem" : "22.5rem", lineHeight: 0.9, color: bgItem.hex, filter: `drop-shadow(0 0 50px ${bgItem.hex}aa)` }}>{bgItem.symbol}</div>
+            </div>
+            <div style={{ fontSize: "4.2rem", fontWeight: 700, color: "white", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.2em", textTransform: "uppercase", textShadow: `0 0 30px ${bgItem.hex}`, marginTop: "110px" }}>{bgItem.name}</div>
           </>
         )}
       </div>
@@ -192,7 +221,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
         </div>
 
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "center" }}>
-          {items.map((c, i) => {
+          {displayItems.map((c, i) => {
             const isActive = i === itemIdx;
             return (
               <button key={c.name} onClick={() => {
@@ -200,7 +229,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
                 const ords = ["First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth"];
                 phase === "test" ? speak(ords[i] || String(i+1)) : speak(c.name);
               }} style={{ display: "flex", alignItems: "center", gap: "5px", padding: "5px 10px", borderRadius: "6px", background: isActive ? c.hex + "44" : "#252535", border: `1px solid ${isActive ? c.hex : "#3a3a55"}`, transition: "all 0.15s", cursor: "pointer", fontFamily: "inherit", outline: "none" }}>
-                <span style={{ fontSize: "0.85rem", color: isActive ? c.hex : "#ffffff", filter: isActive ? `drop-shadow(0 0 4px ${c.hex})` : "none" }}>{c.symbol}</span>
+                <span style={{ fontSize: c.name === "Oval" ? "0.72rem" : "0.85rem", lineHeight: 1, color: isActive ? c.hex : "#ffffff", filter: isActive ? `drop-shadow(0 0 4px ${c.hex})` : "none" }}>{c.symbol}</span>
                 <span style={{ fontSize: "0.72rem", color: isActive ? "white" : "rgba(255,255,255,0.8)" }}>{c.name}</span>
               </button>
             );
