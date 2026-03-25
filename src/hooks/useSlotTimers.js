@@ -28,7 +28,8 @@ export function useSlotTimers(slotCount) {
   const elapsed = (si) => {
     const t = timers[si];
     if (!t.startMs) return null;
-    return (t.endMs ?? now) - t.startMs;
+    const currentNow = t.endMs ?? (now || t.startMs);
+    return currentNow - t.startMs;
   };
 
   const totalSessionMs = () => {
@@ -36,7 +37,7 @@ export function useSlotTimers(slotCount) {
     const ends   = timers.map(t => t.endMs).filter(Boolean);
     if (!starts.length) return null;
     const first = Math.min(...starts);
-    const last  = ends.length === timers.filter(t => t.startMs).length ? Math.max(...ends) : now;
+    const last  = ends.length === timers.filter(t => t.startMs).length ? Math.max(...ends) : (now || first);
     return last - first;
   };
 

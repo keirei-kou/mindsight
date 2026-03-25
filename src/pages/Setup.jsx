@@ -4,6 +4,8 @@ import { generateSlots } from '../utils.js';
 import { GhostBtn } from '../components/GhostBtn.jsx';
 import { SLabel } from '../components/SLabel.jsx';
 import { SlotPicker } from '../components/SlotPicker.jsx';
+import { isSpeechRecognitionSupported, startContinuousListening } from '../speechRecognition.js';
+import { matchTranscriptToItems } from '../speechMatcher.js';
 
 export function Setup({ onStart }) {
   const [appMode, setAppMode]   = useState("group");
@@ -14,6 +16,11 @@ export function Setup({ onStart }) {
   const [category, setCategory] = useState("Colors");
   const [enabled, setEnabled]   = useState(new Set(["Red", "Blue"]));
   const [mode, setMode]         = useState("stratified");
+  const [isListening, setIsListening] = useState(false);
+  const [voiceTestStatus, setVoiceTestStatus] = useState(null);
+  const [voiceTestTranscript, setVoiceTestTranscript] = useState("");
+  const [voiceTestMatch, setVoiceTestMatch] = useState("");
+  const listeningRef = useRef(null);
   const slotsUserSet = useRef(false);
   const slotsRef     = useRef(defaultEnabled.size);
   const catMemory = useRef(
@@ -26,6 +33,13 @@ export function Setup({ onStart }) {
   useEffect(() => {
     slotsRef.current = slots;
   }, [slots]);
+
+  useEffect(() => {
+    return () => {
+      listeningRef.current?.stop?.();
+      listeningRef.current = null;
+    };
+  }, []);
 
   const updateName = (i, v) => { const n = [...names]; n[i] = v; setNames(n); };
   const inputRefs = useRef([]);
@@ -103,6 +117,45 @@ export function Setup({ onStart }) {
       const newPreview = { generated, counts };
       setPreview(newPreview);
       catMemory.current[category] = { enabled, preview: newPreview };
+    }
+  };
+
+  const runVoiceTest = () => {
+    if (isListening) {
+      listeningRef.current?.stop?.();
+      listeningRef.current = null;
+      setIsListening(false);
+      setVoiceTestStatus("Stopped.");
+      return;
+    }
+
+    setIsListening(true);
+    setVoiceTestStatus("Listening...");
+    setVoiceTestTranscript("");
+    setVoiceTestMatch("");
+
+    try {
+      listeningRef.current = startContinuousListening({
+        onStateChange: (state) => {
+          if (state === "listening") setVoiceTestStatus("Listening...");
+          if (state === "retrying") setVoiceTestStatus("Listening...");
+          if (state === "stopped") setIsListening(false);
+        },
+        onResult: (result) => {
+          const matched = matchTranscriptToItems(result.transcript, activeItems);
+          setVoiceTestTranscript(result.transcript);
+          setVoiceTestMatch(matched.match ? `${matched.match} (${Math.round(matched.score * 100)}%)` : "No close match");
+          setVoiceTestStatus("Heard:");
+        },
+        onError: (error) => {
+          setVoiceTestStatus(error.message);
+          setIsListening(false);
+        },
+      });
+    } catch (error) {
+      setVoiceTestStatus(error.message);
+      setIsListening(false);
+      listeningRef.current = null;
     }
   };
 
@@ -268,6 +321,24 @@ export function Setup({ onStart }) {
         </section>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "8px" }}>
+          <div style={{ background: "#181825", borderRadius: "10px", padding: "14px 16px", border: "1px solid #252530" }}>
+            <div style={{ fontSize: "0.68rem", color: "#9090bb", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "10px" }}>Voice Recognition Test</div>
+            <button onClick={runVoiceTest} disabled={!isSpeechRecognitionSupported()} style={{ width: "100%", background: !isSpeechRecognitionSupported() ? "#1c1c28" : isListening ? "#2a1620" : "#121f18", border: !isSpeechRecognitionSupported() ? "1px solid #252530" : isListening ? "1px solid #f472b666" : "1px solid #22c55e66", borderRadius: "8px", color: !isSpeechRecognitionSupported() ? "#555" : isListening ? "#f9a8d4" : "#86efac", padding: "11px 12px", fontSize: "0.78rem", fontFamily: "inherit", letterSpacing: "0.08em", textTransform: "uppercase", cursor: !isSpeechRecognitionSupported() ? "not-allowed" : "pointer" }}>
+              {isListening ? "Stop Mic Test" : "Start Mic Test"}
+            </button>
+            <div style={{ fontSize: "0.68rem", color: "#7070aa", marginTop: "10px", lineHeight: 1.6 }}>
+              {!isSpeechRecognitionSupported()
+                ? "Speech recognition is not supported in this browser."
+                : voiceTestStatus
+                  ? `${voiceTestStatus} ${voiceTestTranscript}`.trim()
+                  : "Click the button and say a color or item name."}
+            </div>
+            {voiceTestMatch && (
+              <div style={{ fontSize: "0.68rem", color: "#86efac", marginTop: "6px", lineHeight: 1.6 }}>
+                Match: {voiceTestMatch}
+              </div>
+            )}
+          </div>
           <button onClick={runPreview} disabled={!canStart} style={{ background: canStart ? "#0f1a2e" : "#1c1c28", border: canStart ? "1px solid #3b82f6" : "1px solid #252530", borderRadius: "8px", color: canStart ? "#60a5fa" : "#333", padding: "12px", fontSize: "0.82rem", fontFamily: "inherit", letterSpacing: "0.1em", textTransform: "uppercase", cursor: canStart ? "pointer" : "not-allowed", transition: "all 0.2s" }}>
             {preview ? "🔄 Re-roll Preview" : "🎲 Preview Distribution"}
           </button>

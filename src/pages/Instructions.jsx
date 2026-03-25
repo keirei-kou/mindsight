@@ -1,4 +1,5 @@
 import { CATEGORIES } from '../constants.js';
+import { speak } from '../tts.js';
 
 export function Instructions({ category, activeItems, onContinue, onBack }) {
   const catItems = activeItems || CATEGORIES[category]?.items || CATEGORIES.Colors.items;
@@ -9,13 +10,6 @@ export function Instructions({ category, activeItems, onContinue, onBack }) {
   const labelStyle = {
     fontSize: "0.65rem", color: "#7070aa", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "6px"
   };
-
-  function speak(text) {
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.95; u.pitch = 1;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(u);
-  }
 
   return (
     <div style={{ minHeight: "100vh", background: "#141420", color: "#f0ece4", fontFamily: "'Georgia', serif", display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 24px" }}>
