@@ -3,7 +3,6 @@ import { StatCard } from '../components/StatCard.jsx';
 
 export function SoloResults({ data, onRestart, onRedo }) {
   const { name, results, colors, category } = data;
-  const isColors = category === "Colors";
   const avgAcc  = results.length ? Math.round(results.reduce((a,r) => a + r.acc, 0) / results.length) : 0;
   const proxArr = results.filter(r => r.prox !== null).map(r => r.prox);
   const avgProx = proxArr.length ? Math.round(proxArr.reduce((a,b) => a+b,0) / proxArr.length) : null;

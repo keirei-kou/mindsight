@@ -1,5 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { itemMap, accuracyScore, proximityScore, patternLabel, cryptoShuffle } from '../utils.js';
+
+const nowMs = () => Date.now();
+const CARD_ORDINALS = ["First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth","Eleventh","Twelfth","Thirteenth","Fourteenth","Fifteenth","Sixteenth","Seventeenth","Eighteenth","Nineteenth","Twentieth"];
+const ITEM_ORDINALS = ["First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth"];
 
 function speak(text) {
   const u = new SpeechSynthesisUtterance(text);
@@ -8,9 +12,8 @@ function speak(text) {
   window.speechSynthesis.speak(u);
 }
 
-export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack, onInstructions, onFinish }) {
+export function TrainingRoom({ items, slots, category, name, onBack, onInstructions, onFinish }) {
   const [phase, setPhase]     = useState("training");
-  const [bgItem, setBgItem]   = useState(items[0]);
   const [itemIdx, setItemIdx] = useState(0);
   const itemIdxRef            = useRef(0);
   const doneRef               = useRef(false);
@@ -22,59 +25,55 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
   const cardStartTime         = useRef(null);
   const lookup                = itemMap(items);
   const latest                = useRef({});
-  const [displayItems, setDisplayItems] = useState(items);
+  const finishMetaRef         = useRef({});
+  const displayItems          = useMemo(() => {
+    if (phase !== "test") return items;
+    const currentSlot = slotIdx;
+    return currentSlot >= 0 ? cryptoShuffle(items) : items;
+  }, [phase, slotIdx, items]);
   const displayItemsRef = useRef(items);
   const isColors              = category === "Colors";
   const isNumbers             = category === "Numbers";
   const isShapes              = category === "Shapes";
   const target                = slots ? slots[slotIdx] : null;
-  latest.current = { phase, slotIdx, guesses, results, target, itemIdx };
-  doneRef.current = done;
 
   useEffect(() => {
     displayItemsRef.current = displayItems;
   }, [displayItems]);
 
   useEffect(() => {
-    if (phase === "test" && target) {
-      const ordinals = ["First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth","Eleventh","Twelfth","Thirteenth","Fourteenth","Fifteenth","Sixteenth","Seventeenth","Eighteenth","Nineteenth","Twentieth"];
-      cardStartTime.current = Date.now();
-      setTimeout(() => speak((ordinals[slotIdx] || ("Card " + (slotIdx + 1))) + " card. Find " + target.name + "."), 300);
-    }
-  }, [slotIdx, phase]);
+    latest.current = { phase, slotIdx, guesses, results, target, itemIdx };
+  }, [phase, slotIdx, guesses, results, target, itemIdx]);
 
   useEffect(() => {
-    const deck = displayItemsRef.current;
-    setBgItem(deck[itemIdx]);
+    doneRef.current = done;
+  }, [done]);
+
+  useEffect(() => {
+    finishMetaRef.current = { name, items, category, onFinish, isColors, slotCount: slots.length };
+  }, [name, items, category, onFinish, isColors, slots.length]);
+
+  useEffect(() => {
+    if (phase === "test" && target) {
+      cardStartTime.current = nowMs();
+      setTimeout(() => speak((CARD_ORDINALS[slotIdx] || ("Card " + (slotIdx + 1))) + " card. Find " + target.name + "."), 300);
+    }
+  }, [slotIdx, phase, target]);
+
+  useEffect(() => {
     itemIdxRef.current = itemIdx;
   }, [itemIdx]);
 
-  // Ensure each test card starts at option index 0, but with a mixed display order.
   useEffect(() => {
-    if (phase === "test") {
-      const shuffled = cryptoShuffle(items);
-      setDisplayItems(shuffled);
-      itemIdxRef.current = 0;
-      setItemIdx(0);
-      setBgItem(shuffled[0]);
-    } else {
-      setDisplayItems(items);
-      itemIdxRef.current = 0;
-      setItemIdx(0);
-      setBgItem(items[0]);
-    }
-  }, [phase, slotIdx, items]);
-
-  useEffect(() => {
-    const ords = ["First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth"];
     const handler = (e) => {
       const { phase, slotIdx, guesses, results, target, itemIdx } = latest.current;
+      const { name, items, category, onFinish, isColors, slotCount } = finishMetaRef.current;
       if (e.key.toLowerCase() === "a") {
         e.preventDefault();
         setItemIdx(prev => {
           const deck = displayItemsRef.current;
           const next = prev === 0 ? deck.length - 1 : prev - 1;
-          phase === "test" ? speak(ords[next] || String(next + 1)) : speak(deck[next].name);
+          phase === "test" ? speak(ITEM_ORDINALS[next] || String(next + 1)) : speak(deck[next].name);
           return next;
         });
         return;
@@ -84,7 +83,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
         setItemIdx(prev => {
           const deck = displayItemsRef.current;
           const next = prev === deck.length - 1 ? 0 : prev + 1;
-          phase === "test" ? speak(ords[next] || String(next + 1)) : speak(deck[next].name);
+          phase === "test" ? speak(ITEM_ORDINALS[next] || String(next + 1)) : speak(deck[next].name);
           return next;
         });
         return;
@@ -92,7 +91,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
       if (e.key.toLowerCase() === "s") {
         e.preventDefault();
         phase === "test"
-          ? speak((slotIdx + 1) + " of " + slots.length + " cards.")
+          ? speak((slotIdx + 1) + " of " + slotCount + " cards.")
           : speak((itemIdx + 1) + " of " + displayItemsRef.current.length + " items.");
         return;
       }
@@ -104,22 +103,22 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
         setResults(newResults);
         resultsRef.current = newResults;
         speak("Skipped.");
-        if (slotIdx + 1 >= slots.length) {
-          setDone(true); doneRef.current = true;
+        if (slotIdx + 1 >= slotCount) {
+          setDone(true);
           setTimeout(() => speak("Test finished. Press space to go to results."), 600);
         } else {
-          setTimeout(() => { setSlotIdx(i => i + 1); setGuesses([]); }, 800);
+          setTimeout(() => { setSlotIdx(i => i + 1); setGuesses([]); setItemIdx(0); }, 800);
         }
         return;
       }
       if (e.code === "Space") {
         e.preventDefault();
-        if (phase === "training") { setPhase("test"); speak("First card."); return; }
+        if (phase === "training") { setPhase("test"); setItemIdx(0); speak("First card."); return; }
         if (doneRef.current) { onFinish({ name, results: resultsRef.current, colors: items, category }); return; }
         if (!target) return;
         const guessName = displayItemsRef.current[itemIdxRef.current].name;
         if (guesses.length > 0 && guesses[guesses.length - 1].color === target.name) return;
-        const now = Date.now();
+        const now = nowMs();
         const newGuesses = [...guesses, { color: guessName, ts: now }];
         setGuesses(newGuesses);
         if (guessName === target.name) {
@@ -136,11 +135,11 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
           const newResults = [...results, slotResult];
           setResults(newResults);
           resultsRef.current = newResults;
-          if (slotIdx + 1 >= slots.length) {
-            setDone(true); doneRef.current = true;
+          if (slotIdx + 1 >= slotCount) {
+            setDone(true);
             setTimeout(() => speak("Test finished. Press space to go to results."), 600);
           } else {
-            setTimeout(() => { setSlotIdx(i => i + 1); setGuesses([]); }, 1000);
+            setTimeout(() => { setSlotIdx(i => i + 1); setGuesses([]); setItemIdx(0); }, 1000);
           }
         } else {
           speak("Different.");
@@ -149,7 +148,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
       }
       if (e.code === "Enter") {
         e.preventDefault();
-        if (phase === "training") { setPhase("test"); speak("First card."); return; }
+        if (phase === "training") { setPhase("test"); setItemIdx(0); speak("First card."); return; }
         if (doneRef.current) { onFinish({ name, results: resultsRef.current, colors: items, category }); return; }
       }
       if ((e.code === "ShiftLeft" || e.code === "ShiftRight") && phase === "test" && target) {
@@ -161,6 +160,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  const bgItem = displayItems[itemIdx] ?? items[0];
   const bg = (isNumbers || isShapes) ? "#1a1a2a" : (bgItem?.hex ?? "#111118");
   const targetItem = target ? lookup[target.name] : null;
   const isOval = bgItem?.name === "Oval";
@@ -226,8 +226,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
             return (
               <button key={c.name} onClick={() => {
                 setItemIdx(i);
-                const ords = ["First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth"];
-                phase === "test" ? speak(ords[i] || String(i+1)) : speak(c.name);
+                phase === "test" ? speak(ITEM_ORDINALS[i] || String(i+1)) : speak(c.name);
               }} style={{ display: "flex", alignItems: "center", gap: "5px", padding: "5px 10px", borderRadius: "6px", background: isActive ? c.hex + "44" : "#252535", border: `1px solid ${isActive ? c.hex : "#3a3a55"}`, transition: "all 0.15s", cursor: "pointer", fontFamily: "inherit", outline: "none" }}>
                 <span style={{ fontSize: c.name === "Oval" ? "0.72rem" : "0.85rem", lineHeight: 1, color: isActive ? c.hex : "#ffffff", filter: isActive ? `drop-shadow(0 0 4px ${c.hex})` : "none" }}>{c.symbol}</span>
                 <span style={{ fontSize: "0.72rem", color: isActive ? "white" : "rgba(255,255,255,0.8)" }}>{c.name}</span>
@@ -242,7 +241,7 @@ export function TrainingRoom({ items, slots, category, name, micDeviceId, onBack
               <button onClick={onInstructions} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "8px 20px", cursor: "pointer", fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", boxShadow: "0 2px 16px #7c3aed55" }}>← Instructions</button>
             )}
             {phase === "test" && (
-              <button onClick={() => { setPhase("training"); setBgItem(items[0]); setGuesses([]); setSlotIdx(0); setResults([]); resultsRef.current = []; setDone(false); doneRef.current = false; setItemIdx(0); speak("Training room."); }} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "8px 20px", cursor: "pointer", fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", boxShadow: "0 2px 16px #7c3aed55" }}>← Training</button>
+              <button onClick={() => { setPhase("training"); setGuesses([]); setSlotIdx(0); setResults([]); resultsRef.current = []; setDone(false); setItemIdx(0); speak("Training room."); }} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "8px 20px", cursor: "pointer", fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", boxShadow: "0 2px 16px #7c3aed55" }}>← Training</button>
             )}
           </div>
 

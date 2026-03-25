@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { CATEGORIES } from '../constants.js';
 import { generateSlots } from '../utils.js';
 import { GhostBtn } from '../components/GhostBtn.jsx';
@@ -16,13 +16,16 @@ export function Setup({ onStart }) {
   const [mode, setMode]         = useState("stratified");
   const slotsUserSet = useRef(false);
   const slotsRef     = useRef(defaultEnabled.size);
-  slotsRef.current = slots;
   const catMemory = useRef(
     Object.fromEntries(Object.keys(CATEGORIES).map(cat => [
       cat,
       { enabled: cat === "Colors" ? new Set(defaultEnabled) : new Set(CATEGORIES[cat].items.map(c => c.name)), preview: null }
     ]))
   );
+
+  useEffect(() => {
+    slotsRef.current = slots;
+  }, [slots]);
 
   const updateName = (i, v) => { const n = [...names]; n[i] = v; setNames(n); };
   const inputRefs = useRef([]);
@@ -49,7 +52,6 @@ export function Setup({ onStart }) {
     const restoredItems = CATEGORIES[cat].items.filter(c => restoredEnabled.has(c.name));
     setCategory(cat);
     setEnabled(restoredEnabled);
-    const currentSlots = slotsRef.current;
     if (!slotsUserSet.current) setSlots(Math.max(2, restoredItems.length));
     setPreview(saved.preview ?? null);
   };

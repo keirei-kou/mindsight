@@ -56,7 +56,6 @@ export function cryptoRandomInt(maxExclusive) {
   const maxUint32 = 0xffffffff;
   const limit = maxUint32 - ((maxUint32 + 1) % maxExclusive);
 
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const arr = new Uint32Array(1);
     crypto.getRandomValues(arr);

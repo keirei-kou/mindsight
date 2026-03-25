@@ -8,21 +8,20 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
   );
 
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const selectedIdxRef = useRef(0);
-  selectedIdxRef.current = selectedIdx;
-
   const selectedCardRef = useRef(null);
   const channelRef = useRef(null);
 
-  const selectedItem = catItems[selectedIdx] ?? catItems[0] ?? null;
-  const selectedCard = selectedItem
-    ? {
-        name: selectedItem.name,
-        symbol: selectedItem.symbol,
-        hex: selectedItem.hex,
-        category,
-      }
-    : null;
+  const selectedCard = useMemo(() => {
+    const selectedItem = catItems[selectedIdx] ?? catItems[0] ?? null;
+    return selectedItem
+      ? {
+          name: selectedItem.name,
+          symbol: selectedItem.symbol,
+          hex: selectedItem.hex,
+          category,
+        }
+      : null;
+  }, [catItems, selectedIdx, category]);
 
   useEffect(() => {
     selectedCardRef.current = selectedCard;
@@ -49,10 +48,14 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
     return () => {
       try {
         channelRef.current?.postMessage({ type: "clear" });
-      } catch {}
+      } catch {
+        // Ignore cleanup errors if the channel is already gone.
+      }
       try {
         channelRef.current?.close();
-      } catch {}
+      } catch {
+        // Ignore cleanup errors if the channel is already closed.
+      }
       channelRef.current = null;
     };
   }, [catItems.length]);
@@ -282,4 +285,3 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
     </div>
   );
 }
-

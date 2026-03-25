@@ -3,6 +3,8 @@ import { GhostBtn } from '../components/GhostBtn.jsx';
 import { useSlotTimers } from '../hooks/useSlotTimers.js';
 import { itemMap, accuracyScore, proximityScore, patternLabel, fmt } from '../utils.js';
 
+const nowMs = () => Date.now();
+
 export function Session({ participants: initP, slots, colors, category, onEnd }) {
   const itemLookup = itemMap(colors);
   const [participants, setParticipants] = useState(initP);
@@ -38,7 +40,7 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
   const logGuess = (pid, si, colorName) => {
     if (isResolved(pid, si)) return;
     setEditCursor(null);
-    const now = Date.now();
+    const now = nowMs();
     setSession(prev => {
       const cell = prev[pid]?.[si] ?? { guesses: [], dnf: false, slotStart: now };
       const newCell = { ...cell, guesses: [...cell.guesses, { color: colorName, ts: now }], dnf: false };
@@ -47,7 +49,7 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
   };
 
   const markDNF = (pid, si) => {
-    setSession(prev => ({ ...prev, [pid]: { ...(prev[pid]??{}), [si]: { guesses: [], dnf: true, slotStart: prev[pid]?.[si]?.slotStart ?? Date.now() } } }));
+    setSession(prev => ({ ...prev, [pid]: { ...(prev[pid]??{}), [si]: { guesses: [], dnf: true, slotStart: prev[pid]?.[si]?.slotStart ?? nowMs() } } }));
   };
 
   const removeDot = (pid, si, idx) => {
@@ -102,7 +104,7 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
       }
     };
     return () => channel.close();
-  }, [activeSlot]);
+  }, [activeSlot, category, slots]);
 
   useEffect(() => {
     if (!editCursor) return;
@@ -313,20 +315,20 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
                                 } else if (e.shiftKey) {
                                   setSession(prev => {
                                     const cell = prev[p.id]?.[si] ?? { guesses: [], dnf: false };
-                                    const newGuesses = [...cell.guesses.slice(0, cur+1), { color: c.name, ts: Date.now() }, ...cell.guesses.slice(cur+1)];
+                                    const newGuesses = [...cell.guesses.slice(0, cur+1), { color: c.name, ts: nowMs() }, ...cell.guesses.slice(cur+1)];
                                     return { ...prev, [p.id]: { ...(prev[p.id]??{}), [si]: { ...cell, guesses: newGuesses, dnf: false } } };
                                   });
                                   setEditCursor({ pid: p.id, si, idx: cur + 1 });
                                 } else if (e.ctrlKey || e.metaKey) {
                                   setSession(prev => {
                                     const cell = prev[p.id]?.[si] ?? { guesses: [], dnf: false };
-                                    const newGuesses = [...cell.guesses.slice(0, cur), { color: c.name, ts: Date.now() }, ...cell.guesses.slice(cur)];
+                                    const newGuesses = [...cell.guesses.slice(0, cur), { color: c.name, ts: nowMs() }, ...cell.guesses.slice(cur)];
                                     return { ...prev, [p.id]: { ...(prev[p.id]??{}), [si]: { ...cell, guesses: newGuesses, dnf: false } } };
                                   });
                                 } else {
                                   setSession(prev => {
                                     const cell = prev[p.id]?.[si] ?? { guesses: [], dnf: false };
-                                    const newGuesses = cell.guesses.map((g, i) => i === cur ? { color: c.name, ts: Date.now() } : g);
+                                    const newGuesses = cell.guesses.map((g, i) => i === cur ? { color: c.name, ts: nowMs() } : g);
                                     return { ...prev, [p.id]: { ...(prev[p.id]??{}), [si]: { ...cell, guesses: newGuesses, dnf: false } } };
                                   });
                                 }
