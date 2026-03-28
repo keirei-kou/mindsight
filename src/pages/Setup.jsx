@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { CATEGORIES } from '../constants.js';
 import { generateSlots } from '../utils.js';
+import { parseResultsCsvSummary } from '../csv.js';
+import { CsvImportButton } from '../components/CsvImportButton.jsx';
 import { GhostBtn } from '../components/GhostBtn.jsx';
 import { SLabel } from '../components/SLabel.jsx';
 import { SlotPicker } from '../components/SlotPicker.jsx';
@@ -20,6 +22,8 @@ export function Setup({ onStart }) {
   const [voiceTestStatus, setVoiceTestStatus] = useState(null);
   const [voiceTestTranscript, setVoiceTestTranscript] = useState("");
   const [voiceTestMatch, setVoiceTestMatch] = useState("");
+  const [importStatus, setImportStatus] = useState("");
+  const [importError, setImportError] = useState("");
   const listeningRef = useRef(null);
   const slotsUserSet = useRef(false);
   const slotsRef     = useRef(defaultEnabled.size);
@@ -169,6 +173,33 @@ export function Setup({ onStart }) {
     }
   };
 
+  const importCsv = async (file) => {
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const summary = parseResultsCsvSummary(text);
+
+      switchCategory(summary.category);
+      slotsUserSet.current = true;
+      setSlots(Math.max(1, summary.roundSize || 1));
+
+      if (summary.kind === "solo") {
+        setAppMode("individual");
+        setSoloName(summary.participantNames[0] || "User 1");
+      } else {
+        setAppMode("group");
+        setNames(summary.participantNames.length ? summary.participantNames : ["User 1", "User 2"]);
+      }
+
+      setImportStatus(`Loaded ${summary.kind} CSV: ${summary.category}, ${summary.roundSize} cards.`);
+      setImportError("");
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "Unable to import that CSV.");
+      setImportStatus("");
+    }
+  };
+
   const inp = { flex: 1, background: "#1c1c28", border: "1px solid #252530", borderRadius: "6px", color: "#f0ece4", padding: "9px 12px", fontSize: "0.88rem", fontFamily: "inherit", outline: "none" };
 
   return (
@@ -201,6 +232,20 @@ export function Setup({ onStart }) {
         </div>
       </div>
       <div style={{ width: "100%", maxWidth: "340px", display: "flex", flexDirection: "column", gap: "32px" }}>
+        <section>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <CsvImportButton
+              onSelect={importCsv}
+              buttonStyle={{ background: "transparent", border: "1px solid #f59e0b66", borderRadius: "8px", color: "#fbbf24", padding: "12px", fontSize: "0.82rem", fontFamily: "inherit", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", transition: "all 0.2s" }}
+              statusStyle={{ fontSize: "0.68rem", color: "#d6b06b", letterSpacing: "0.04em", lineHeight: 1.6 }}
+            />
+            {(importStatus || importError) && (
+              <div style={{ fontSize: "0.68rem", color: importError ? "#fca5a5" : "#a7f3d0", letterSpacing: "0.04em", lineHeight: 1.6 }}>
+                {importError || importStatus}
+              </div>
+            )}
+          </div>
+        </section>
         <section>
           <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
             <button onClick={() => setAppMode("individual")} style={{ flex: 1, padding: "11px 12px", borderRadius: "10px", border: appMode==="individual" ? "none" : "1.5px solid #2a2a3a", background: appMode==="individual" ? "linear-gradient(135deg, #1e1a2e, #2d1f4e)" : "#1c1c28", color: appMode==="individual" ? "#c4b5fd" : "#555", fontSize: "0.8rem", fontFamily: "inherit", fontWeight: appMode==="individual" ? 600 : 400, letterSpacing: "0.04em", cursor: "pointer", boxShadow: appMode==="individual" ? "0 4px 16px #7c3aed33" : "none", transition: "all 0.15s" }}>Individual Training</button>
@@ -321,24 +366,6 @@ export function Setup({ onStart }) {
         </section>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "8px" }}>
-          <div style={{ background: "#181825", borderRadius: "10px", padding: "14px 16px", border: "1px solid #252530" }}>
-            <div style={{ fontSize: "0.68rem", color: "#9090bb", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "10px" }}>Voice Recognition Test</div>
-            <button onClick={runVoiceTest} disabled={!isSpeechRecognitionSupported()} style={{ width: "100%", background: !isSpeechRecognitionSupported() ? "#1c1c28" : isListening ? "#2a1620" : "#121f18", border: !isSpeechRecognitionSupported() ? "1px solid #252530" : isListening ? "1px solid #f472b666" : "1px solid #22c55e66", borderRadius: "8px", color: !isSpeechRecognitionSupported() ? "#555" : isListening ? "#f9a8d4" : "#86efac", padding: "11px 12px", fontSize: "0.78rem", fontFamily: "inherit", letterSpacing: "0.08em", textTransform: "uppercase", cursor: !isSpeechRecognitionSupported() ? "not-allowed" : "pointer" }}>
-              {isListening ? "Stop Mic Test" : "Start Mic Test"}
-            </button>
-            <div style={{ fontSize: "0.68rem", color: "#7070aa", marginTop: "10px", lineHeight: 1.6 }}>
-              {!isSpeechRecognitionSupported()
-                ? "Speech recognition is not supported in this browser."
-                : voiceTestStatus
-                  ? `${voiceTestStatus} ${voiceTestTranscript}`.trim()
-                  : "Click the button and say a color or item name."}
-            </div>
-            {voiceTestMatch && (
-              <div style={{ fontSize: "0.68rem", color: "#86efac", marginTop: "6px", lineHeight: 1.6 }}>
-                Match: {voiceTestMatch}
-              </div>
-            )}
-          </div>
           <button onClick={runPreview} disabled={!canStart} style={{ background: canStart ? "#0f1a2e" : "#1c1c28", border: canStart ? "1px solid #3b82f6" : "1px solid #252530", borderRadius: "8px", color: canStart ? "#60a5fa" : "#333", padding: "12px", fontSize: "0.82rem", fontFamily: "inherit", letterSpacing: "0.1em", textTransform: "uppercase", cursor: canStart ? "pointer" : "not-allowed", transition: "all 0.2s" }}>
             {preview ? "🔄 Re-roll Preview" : "🎲 Preview Distribution"}
           </button>

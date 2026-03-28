@@ -195,11 +195,24 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
   const NAME_W = 160, CELL_W = 200, SUMM_W = 200;
   const totalMs = totalSessionMs();
 
+  const finishSession = () => {
+    onEnd({
+      participants,
+      slots,
+      colors,
+      category,
+      session,
+      timers: timers.map(timer => ({ ...timer })),
+      totalSessionMs: totalMs,
+      endedAt: new Date().toISOString(),
+    });
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: "#141420", color: "#f0ece4", fontFamily: "'Georgia', serif", display: "flex", flexDirection: "column" }}>
       <div style={{ padding: "12px 20px", borderBottom: "1px solid #1c1c28", display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", flexShrink: 0, position: "relative" }}>
         <div style={{ position: "absolute", top: "12px", right: "20px" }}>
-          <GhostBtn small danger onClick={onEnd}>End</GhostBtn>
+          <GhostBtn small danger onClick={finishSession}>End</GhostBtn>
         </div>
         <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
           <div style={{ fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "1.4rem", fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", background: "linear-gradient(120deg, #93c5fd 0%, #a78bfa 40%, #e879f9 70%, #f9a8d4 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text", filter: "drop-shadow(0 0 8px #a78bfa66)" }}>MINDSIGHT</div>

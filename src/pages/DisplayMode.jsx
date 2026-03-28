@@ -27,7 +27,7 @@ export function DisplayMode() {
 
   return (
     <div style={{ width: "100vw", height: "100vh", background: bg, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", transition: "background 0.4s", fontFamily: "'Georgia', serif", overflow: "hidden" }}>
-      {!card && <div style={{ color: "rgba(255,255,255,0.15)", fontSize: "1rem", letterSpacing: "0.3em", textTransform: "uppercase" }}>Waiting for session...</div>}
+      {!card && <div style={{ color: "rgba(255, 255, 255, 0.95)", fontSize: "1rem", letterSpacing: "0.3em", textTransform: "uppercase" }}>Waiting for session...</div>}
       {card && isNumbers && (() => {
         const numMap = {"One":"1","Two":"2","Three":"3","Four":"4","Five":"5","Six":"6"};
         return (
