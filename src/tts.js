@@ -3,6 +3,7 @@ const DEFAULT_PITCH = 1;
 const DEFAULT_VOICE = "af_heart";
 let selectedVoice = DEFAULT_VOICE;
 let activeAudio = null;
+const staticAudioCache = new Map();
 
 const STATIC_CLIP_MAP = {
   "training room": "prompts/training-room.wav",
@@ -13,6 +14,9 @@ const STATIC_CLIP_MAP = {
   "say it again": "confirmations/say-it-again.wav",
   "say one choice only": "confirmations/say-one-choice-only.wav",
   "test finished press space to go to results": "prompts/test-finished-press-space-to-go-to-results.wav",
+  "test finished press space or say results to go to the results page": "prompts/test-finished-press-space-or-say-results-to-go-to-the-results-page.wav",
+  "results go to results": "prompts/results-go-to-results.wav",
+  "results": "prompts/results.wav",
   "first card": "cards/first-card.wav",
   "second card": "cards/second-card.wav",
   "third card": "cards/third-card.wav",
@@ -91,6 +95,27 @@ const STATIC_CLIP_MAP = {
   "did you say star": "confirmations/did-you-say-star.wav",
   "did you say wavy": "confirmations/did-you-say-wavy.wav",
   "did you say cross": "confirmations/did-you-say-cross.wav",
+  "different the answer was red": "confirmations/different-the-answer-was-red.wav",
+  "different the answer was orange": "confirmations/different-the-answer-was-orange.wav",
+  "different the answer was yellow": "confirmations/different-the-answer-was-yellow.wav",
+  "different the answer was green": "confirmations/different-the-answer-was-green.wav",
+  "different the answer was blue": "confirmations/different-the-answer-was-blue.wav",
+  "different the answer was purple": "confirmations/different-the-answer-was-purple.wav",
+  "different the answer was one": "confirmations/different-the-answer-was-one.wav",
+  "different the answer was two": "confirmations/different-the-answer-was-two.wav",
+  "different the answer was three": "confirmations/different-the-answer-was-three.wav",
+  "different the answer was four": "confirmations/different-the-answer-was-four.wav",
+  "different the answer was five": "confirmations/different-the-answer-was-five.wav",
+  "different the answer was six": "confirmations/different-the-answer-was-six.wav",
+  "different the answer was circle": "confirmations/different-the-answer-was-circle.wav",
+  "different the answer was oval": "confirmations/different-the-answer-was-oval.wav",
+  "different the answer was square": "confirmations/different-the-answer-was-square.wav",
+  "different the answer was rectangle": "confirmations/different-the-answer-was-rectangle.wav",
+  "different the answer was triangle": "confirmations/different-the-answer-was-triangle.wav",
+  "different the answer was diamond": "confirmations/different-the-answer-was-diamond.wav",
+  "different the answer was star": "confirmations/different-the-answer-was-star.wav",
+  "different the answer was wavy": "confirmations/different-the-answer-was-wavy.wav",
+  "different the answer was cross": "confirmations/different-the-answer-was-cross.wav",
 };
 
 function normalizeText(text) {
@@ -107,6 +132,29 @@ function getStaticClipUrl(text) {
   return `${import.meta.env.BASE_URL}audio/${selectedVoice}/${fileName}`;
 }
 
+function getCachedStaticAudio(url) {
+  let audio = staticAudioCache.get(url);
+  if (audio) {
+    return audio;
+  }
+
+  audio = new Audio(url);
+  audio.preload = "auto";
+  audio.onended = () => {
+    if (activeAudio === audio) {
+      activeAudio = null;
+    }
+  };
+  audio.onerror = () => {
+    if (activeAudio === audio) {
+      activeAudio = null;
+    }
+  };
+
+  staticAudioCache.set(url, audio);
+  return audio;
+}
+
 function speakWithBrowser(text, options = {}) {
   if (typeof window === "undefined" || !window.speechSynthesis) return;
 
@@ -119,6 +167,7 @@ function speakWithBrowser(text, options = {}) {
 
 export function setVoice(voice) {
   selectedVoice = voice || DEFAULT_VOICE;
+  staticAudioCache.clear();
 }
 
 export function getSelectedVoice() {
@@ -151,15 +200,10 @@ export function speak(text, options = {}) {
   stopSpeaking();
   const staticClipUrl = getStaticClipUrl(text);
   if (staticClipUrl) {
-    const audio = new Audio(staticClipUrl);
-    audio.preload = "auto";
+    const audio = getCachedStaticAudio(staticClipUrl);
+    audio.currentTime = 0;
     activeAudio = audio;
-    audio.onended = () => {
-      if (activeAudio === audio) activeAudio = null;
-    };
-    audio.onerror = () => {
-      if (activeAudio === audio) activeAudio = null;
-    };
+
     void audio.play().catch(() => {
       if (activeAudio === audio) activeAudio = null;
     });

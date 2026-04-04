@@ -1,28 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CsvImportButton } from '../components/CsvImportButton.jsx';
 import { StatCard } from '../components/StatCard.jsx';
+import { buildTrialTimelinePoints, formatGuessPositionLabel } from '../analytics.js';
 import { buildResultsFilename, buildSoloResultsCsv, downloadCsv, parseSoloResultsCsv } from '../csv.js';
+import { DECK_POLICIES, GUESS_POLICIES, SESSION_MODES } from '../sessionModel.js';
+import { speak } from '../tts.js';
 
-function buildSoloGraphPoints(results) {
-  let elapsedMs = 0;
-  return results.map((result, index) => {
-    const durations = [result.timeToFirst, ...(result.guessDeltas || [])].filter(value => value != null);
-    const cardTotalMs = durations.reduce((sum, value) => sum + value, 0);
-    elapsedMs += cardTotalMs;
-    return {
-      x: elapsedMs,
-      y: result.acc,
-      card: index + 1,
-      target: result.target,
-    };
-  });
-}
-
-function SoloAccuracyGraph({ results }) {
+function SoloAccuracyGraph({ trials, guessPolicy }) {
   const width = 520;
   const height = 260;
   const padding = { top: 20, right: 18, bottom: 36, left: 42 };
-  const points = buildSoloGraphPoints(results).filter(point => point.x > 0);
+  const points = buildTrialTimelinePoints(trials, guessPolicy);
   const maxX = points.length ? Math.max(...points.map(point => point.x), 1) : 1;
   const graphWidth = width - padding.left - padding.right;
   const graphHeight = height - padding.top - padding.bottom;
@@ -34,7 +22,9 @@ function SoloAccuracyGraph({ results }) {
 
   return (
     <div style={{ width: "100%", maxWidth: "520px", background: "#111118", border: "1px solid #252530", borderRadius: "14px", padding: "18px 18px 12px", overflowX: "auto" }}>
-      <div style={{ fontSize: "0.78rem", color: "#b9b4d8", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "12px" }}>Accuracy Over Time</div>
+      <div style={{ fontSize: "0.78rem", color: "#b9b4d8", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "12px" }}>
+        {guessPolicy === GUESS_POLICIES.ONE_SHOT ? "First Guess Outcome Over Time" : "Weighted Score Over Time"}
+      </div>
       <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Solo accuracy graph">
         {yTicks.map((tick) => (
           <g key={tick}>
@@ -50,13 +40,20 @@ function SoloAccuracyGraph({ results }) {
           Session Time
         </text>
         <text x={16} y={height / 2} fill="#7f7a9e" fontSize="11" textAnchor="middle" transform={`rotate(-90 16 ${height / 2})`}>
-          Accuracy
+          Score
         </text>
         {path && <path d={path} fill="none" stroke="#60a5fa" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />}
         {points.map((point) => (
           <g key={point.card}>
             <circle cx={scaleX(point.x)} cy={scaleY(point.y)} r="4" fill="#60a5fa" />
-            <title>{`Card ${point.card}: ${point.y}% accuracy`}</title>
+            <title>{[
+              `Card ${point.card}`,
+              point.targetValue ? `Target: ${point.targetValue}` : null,
+              `Score: ${point.y}%`,
+              `First Guess: ${point.firstGuessCorrect ? "correct" : "incorrect"}`,
+              point.firstGuess ? `Heard: ${point.firstGuess}` : null,
+              formatGuessPositionLabel(point.correctGuessIndex),
+            ].filter(Boolean).join(" • ")}</title>
           </g>
         ))}
       </svg>
@@ -73,10 +70,25 @@ export function SoloResults({ data, onRestart, onRedo }) {
     setViewData(data);
   }, [data]);
 
-  const { name, results, colors, category } = viewData;
+  useEffect(() => {
+    speak("Results.");
+  }, []);
+
+  const { name, results, colors, category, analytics, appMode, shareCode, guessPolicy, deckPolicy, trials } = viewData;
   const avgAcc  = results.length ? Math.round(results.reduce((a, r) => a + r.acc, 0) / results.length) : 0;
   const proxArr = results.filter(r => r.prox !== null).map(r => r.prox);
   const avgProx = proxArr.length ? Math.round(proxArr.reduce((a, b) => a + b, 0) / proxArr.length) : null;
+  const isOneShot = guessPolicy === GUESS_POLICIES.ONE_SHOT;
+  const modeCards = [
+    appMode === SESSION_MODES.SHARED ? "Shared Training" : appMode === SESSION_MODES.SOLO ? "Solo Training" : null,
+    guessPolicy ? (guessPolicy === GUESS_POLICIES.ONE_SHOT ? "One Shot" : "Repeat Until Correct") : null,
+    deckPolicy ? (deckPolicy === DECK_POLICIES.BALANCED_DECK ? "Balanced Deck" : "Independent Draws") : null,
+  ].filter(Boolean);
+  const firstGuessAccuracy = analytics?.firstGuessAccuracy != null ? Math.round(analytics.firstGuessAccuracy * 100) : null;
+  const weightedScore = analytics?.weightedScore != null ? Math.round(analytics.weightedScore * 100) : null;
+  const averageGuessPosition = analytics?.averageGuessPosition ?? null;
+  const guessPositionStdDev = analytics?.guessPositionStdDev ?? null;
+  const zScore = analytics?.zScore ?? null;
   const headerSubtitle = useMemo(() => {
     if (viewData.importedFromCsv) return `${name} · imported CSV`;
     return name;
@@ -105,20 +117,43 @@ export function SoloResults({ data, onRestart, onRedo }) {
     <div style={{ minHeight: "100vh", background: "#141420", fontFamily: "'Georgia', serif", color: "#f0ece4", padding: "40px 24px", display: "flex", flexDirection: "column", alignItems: "center" }}>
       <div style={{ fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "2rem", fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", background: "linear-gradient(120deg, #93c5fd 0%, #a78bfa 40%, #e879f9 70%, #f9a8d4 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text", marginBottom: "6px" }}>Results</div>
       <div style={{ fontSize: "0.7rem", color: "#6b5aaa", letterSpacing: "0.2em", marginBottom: "32px", textTransform: "uppercase" }}>{headerSubtitle}</div>
+      {modeCards.length > 0 && (
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center", marginBottom: "20px" }}>
+          {modeCards.map((label) => (
+            <div key={label} style={{ border: "1px solid #3a3a55", borderRadius: "999px", padding: "6px 12px", fontSize: "0.68rem", color: "#c9c3e5", letterSpacing: "0.08em", textTransform: "uppercase", background: "#181825" }}>
+              {label}
+            </div>
+          ))}
+        </div>
+      )}
+      {shareCode && (
+        <div style={{ fontSize: "0.7rem", color: "#93c5fd", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "20px" }}>
+          Shared Session {shareCode}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: "16px", marginBottom: "32px", flexWrap: "wrap", justifyContent: "center" }}>
-        <StatCard label="Avg Accuracy" value={`${avgAcc}%`} color={avgAcc >= 70 ? "#22c55e" : avgAcc >= 40 ? "#eab308" : "#ef4444"} />
+        {firstGuessAccuracy !== null ? (
+          <StatCard label="First Guess" value={`${firstGuessAccuracy}%`} color={firstGuessAccuracy >= 70 ? "#22c55e" : firstGuessAccuracy >= 40 ? "#eab308" : "#ef4444"} />
+        ) : (
+          <StatCard label="Avg Accuracy" value={`${avgAcc}%`} color={avgAcc >= 70 ? "#22c55e" : avgAcc >= 40 ? "#eab308" : "#ef4444"} />
+        )}
+        {zScore !== null && <StatCard label="Z-Score" value={zScore.toFixed(2)} color={zScore >= 2 ? "#22c55e" : zScore >= 1 ? "#eab308" : "#f97316"} />}
+        {!isOneShot && averageGuessPosition !== null && <StatCard label="Avg Guess Pos" value={averageGuessPosition.toFixed(2)} color="#60a5fa" />}
+        {!isOneShot && guessPositionStdDev !== null && <StatCard label="Guess Std Dev" value={guessPositionStdDev.toFixed(2)} color="#93c5fd" />}
+        {!isOneShot && weightedScore !== null && <StatCard label="Weighted Score" value={`${weightedScore}%`} color={weightedScore >= 70 ? "#22c55e" : weightedScore >= 40 ? "#eab308" : "#ef4444"} />}
         {avgProx !== null && <StatCard label="Avg Proximity" value={`${avgProx}%`} color="#a78bfa" />}
         <StatCard label="Cards" value={results.length} color="#60a5fa" />
       </div>
 
-      {results.some(result => result.timeToFirst != null || result.guessDeltas?.length) && (
+      {Array.isArray(trials) && trials.some((trial) => trial.trialDurationMs != null) && (
         <div style={{ width: "100%", display: "flex", justifyContent: "center", marginBottom: "24px" }}>
-          <SoloAccuracyGraph results={results} />
+          <SoloAccuracyGraph trials={trials} guessPolicy={guessPolicy} />
         </div>
       )}
 
-      <div style={{ width: "100%", maxWidth: "520px", display: "flex", flexDirection: "column", gap: "8px" }}>
+      {!Array.isArray(trials) && (
+        <div style={{ width: "100%", maxWidth: "520px", display: "flex", flexDirection: "column", gap: "8px" }}>
         {results.map((r, i) => {
           const tgt = colors.find(c => c.name === r.target);
           return (
@@ -154,7 +189,8 @@ export function SoloResults({ data, onRestart, onRedo }) {
             </div>
           );
         })}
-      </div>
+        </div>
+      )}
       <div style={{ display: "flex", gap: "12px", marginTop: "32px", flexWrap: "wrap", justifyContent: "center" }}>
         <button onClick={onRedo} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "10px", color: "white", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 4px 20px #7c3aed44" }}>
           Redo Test

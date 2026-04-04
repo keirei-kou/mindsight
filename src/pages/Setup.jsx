@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { CATEGORIES } from '../constants.js';
-import { generateSlots } from '../utils.js';
+import { buildSessionDeck, buildSharedSessionDeck } from '../deck.js';
 import { parseResultsCsvSummary } from '../csv.js';
+import { createShareCode, DECK_POLICIES, GUESS_POLICIES, SESSION_MODES } from '../sessionModel.js';
 import { CsvImportButton } from '../components/CsvImportButton.jsx';
 import { GhostBtn } from '../components/GhostBtn.jsx';
 import { SLabel } from '../components/SLabel.jsx';
@@ -9,15 +10,18 @@ import { SlotPicker } from '../components/SlotPicker.jsx';
 import { isSpeechRecognitionSupported, startContinuousListening } from '../speechRecognition.js';
 import { matchTranscriptToItems } from '../speechMatcher.js';
 
-export function Setup({ onStart }) {
-  const [appMode, setAppMode]   = useState("group");
-  const [soloName, setSoloName] = useState("User 1");
+export function Setup({ onStart, onImportResults }) {
+  const [appMode, setAppMode]   = useState(SESSION_MODES.SOLO);
+  const [guessPolicy, setGuessPolicy] = useState(GUESS_POLICIES.REPEAT_UNTIL_CORRECT);
+  const [soloName, setSoloName] = useState("Keirei");
+  const [sharedName, setSharedName] = useState("Keirei");
+  const [shareCode, setShareCode] = useState("");
   const [names, setNames]       = useState(["User 1", "User 2"]);
   const defaultEnabled = new Set(["Red", "Blue"]);
   const [slots, setSlots]       = useState(defaultEnabled.size);
   const [category, setCategory] = useState("Colors");
   const [enabled, setEnabled]   = useState(new Set(["Red", "Blue"]));
-  const [mode, setMode]         = useState("stratified");
+  const [deckPolicy, setDeckPolicy] = useState(DECK_POLICIES.BALANCED_DECK);
   const [isListening, setIsListening] = useState(false);
   const [voiceTestStatus, setVoiceTestStatus] = useState(null);
   const [voiceTestTranscript, setVoiceTestTranscript] = useState("");
@@ -81,7 +85,7 @@ export function Setup({ onStart }) {
     const effectiveSlots = slotsUserSet.current ? slots : newActiveItems.length;
     if (!slotsUserSet.current) setSlots(newActiveItems.length);
     if (preview) {
-      const generated = generateSlots(newActiveItems, effectiveSlots, mode);
+      const generated = buildPreviewDeck(newActiveItems, effectiveSlots);
       const counts = {};
       newActiveItems.forEach(c => { counts[c.name] = 0; });
       generated.forEach(sl => { counts[sl.name] = (counts[sl.name] || 0) + 1; });
@@ -94,8 +98,22 @@ export function Setup({ onStart }) {
   };
 
   const activeItems = CATEGORIES[category].items.filter(c => enabled.has(c.name));
-  const canStart = (appMode === "individual" ? soloName.trim() : names.some(n => n.trim())) && activeItems.length >= 1;
+  const canStart = (
+    appMode === SESSION_MODES.SOLO
+      ? soloName.trim()
+      : appMode === SESSION_MODES.SHARED
+        ? (sharedName.trim() && shareCode.trim())
+        : names.some(n => n.trim())
+  ) && activeItems.length >= 1;
   const [preview, setPreview] = useState(null);
+
+  const buildPreviewDeck = (itemsToUse, slotCount, nextDeckPolicy = deckPolicy, nextShareCode = shareCode) => {
+    if (appMode === SESSION_MODES.SHARED) {
+      return buildSharedSessionDeck(itemsToUse, slotCount, nextDeckPolicy, nextShareCode);
+    }
+
+    return buildSessionDeck(itemsToUse, slotCount, nextDeckPolicy);
+  };
 
   const runPreview = () => {
     const hasAnyPreview = Object.values(catMemory.current).some(m => m.preview !== null);
@@ -105,7 +123,7 @@ export function Setup({ onStart }) {
         const catEnabled = mem?.enabled ?? new Set(CATEGORIES[cat].items.map(c => c.name));
         const catItems = CATEGORIES[cat].items.filter(c => catEnabled.has(c.name));
         const count = slotsUserSet.current ? slots : catItems.length;
-        const g = generateSlots(catItems, count, mode);
+        const g = buildPreviewDeck(catItems, count, deckPolicy, shareCode);
         const ct = {};
         catItems.forEach(c => { ct[c.name] = 0; });
         g.forEach(s => { ct[s.name] = (ct[s.name] || 0) + 1; });
@@ -114,7 +132,7 @@ export function Setup({ onStart }) {
         if (cat === category) setPreview(p);
       });
     } else {
-      const generated = generateSlots(activeItems, slots, mode);
+      const generated = buildPreviewDeck(activeItems, slots);
       const counts = {};
       activeItems.forEach(c => { counts[c.name] = 0; });
       generated.forEach(s => { counts[s.name] = (counts[s.name] || 0) + 1; });
@@ -164,16 +182,45 @@ export function Setup({ onStart }) {
   };
 
   const go = () => {
-    const generated = preview ? preview.generated : generateSlots(activeItems, slots, mode);
-    if (appMode === "individual") {
-      onStart({ appMode: "individual", name: soloName.trim(), slots: generated, colors: activeItems, category });
+    const generated = preview ? preview.generated : buildPreviewDeck(activeItems, slots);
+    if (appMode === SESSION_MODES.SOLO) {
+      onStart({
+        appMode: SESSION_MODES.SOLO,
+        name: soloName.trim(),
+        slots: generated,
+        colors: activeItems,
+        category,
+        guessPolicy,
+        deckPolicy,
+        shareCode: null,
+      });
+    } else if (appMode === SESSION_MODES.SHARED) {
+      onStart({
+        appMode: SESSION_MODES.SHARED,
+        name: sharedName.trim(),
+        shareCode: shareCode.trim().toUpperCase(),
+        slots: generated,
+        colors: activeItems,
+        category,
+        guessPolicy,
+        deckPolicy,
+      });
     } else {
       const participants = names.filter(n => n.trim()).map((n, i) => ({ id: i, name: n.trim(), active: true }));
-      onStart({ appMode: "group", participants, slots: generated, colors: activeItems, category });
+      onStart({
+        appMode: SESSION_MODES.GROUP,
+        participants,
+        slots: generated,
+        colors: activeItems,
+        category,
+        guessPolicy,
+        deckPolicy,
+        shareCode: null,
+      });
     }
   };
 
-  const importCsv = async (file) => {
+  const importCsvSummary = async (file) => {
     if (!file) return;
 
     try {
@@ -185,10 +232,12 @@ export function Setup({ onStart }) {
       setSlots(Math.max(1, summary.roundSize || 1));
 
       if (summary.kind === "solo") {
-        setAppMode("individual");
+        setAppMode(summary.appMode === SESSION_MODES.SHARED ? SESSION_MODES.SHARED : SESSION_MODES.SOLO);
         setSoloName(summary.participantNames[0] || "User 1");
+        setSharedName(summary.participantNames[0] || "User 1");
+        setShareCode(summary.shareCode || "");
       } else {
-        setAppMode("group");
+        setAppMode(SESSION_MODES.GROUP);
         setNames(summary.participantNames.length ? summary.participantNames : ["User 1", "User 2"]);
       }
 
@@ -200,7 +249,84 @@ export function Setup({ onStart }) {
     }
   };
 
+  const importCsvToResults = async (file) => {
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const summary = parseResultsCsvSummary(text);
+      onImportResults?.({ kind: summary.kind, text });
+      setImportStatus(`Opened ${summary.kind} results from ${file.name}.`);
+      setImportError("");
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "Unable to open that CSV.");
+      setImportStatus("");
+    }
+  };
+
   const inp = { flex: 1, background: "#1c1c28", border: "1px solid #252530", borderRadius: "6px", color: "#f0ece4", padding: "9px 12px", fontSize: "0.88rem", fontFamily: "inherit", outline: "none" };
+  const modeSelectStyle = {
+    width: "100%",
+    maxWidth: "240px",
+    background: "linear-gradient(135deg, #161227 0%, #22153d 55%, #1a1330 100%)",
+    border: "1px solid #6d4aff",
+    borderRadius: "10px",
+    color: "#f0ece4",
+    padding: "10px 14px",
+    minHeight: "44px",
+    fontSize: "1.05rem",
+    fontFamily: "'Cormorant Garamond', Georgia, serif",
+    letterSpacing: "0.08em",
+    textAlign: "center",
+    outline: "none",
+    boxShadow: "0 0 0 1px rgba(167, 139, 250, 0.18), 0 6px 20px rgba(76, 29, 149, 0.18)",
+  };
+  const sectionCardStyle = {
+    background: "#181825",
+    border: "1px solid #2b2b3f",
+    borderRadius: "14px",
+    padding: "20px 20px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+    boxShadow: "0 10px 24px rgba(0,0,0,0.18)",
+  };
+
+  const updateSharedCode = (value) => {
+    setShareCode(value.toUpperCase().replace(/[^A-Z0-9-]/g, ""));
+    clearPreviewMemory();
+  };
+
+  const generateShareSession = () => {
+    setShareCode(createShareCode());
+    clearPreviewMemory();
+  };
+
+  const clearPreviewMemory = () => {
+    setPreview(null);
+    Object.keys(CATEGORIES).forEach(cat => {
+      catMemory.current[cat] = {
+        enabled: catMemory.current[cat]?.enabled ?? new Set(CATEGORIES[cat].items.map(c => c.name)),
+        preview: null,
+      };
+    });
+  };
+
+  const guessPolicySummary = guessPolicy === GUESS_POLICIES.ONE_SHOT
+    ? "One Shot gives exactly one guess per card, then reveals the result and advances."
+    : "Repeat Until Correct allows repeated guesses on the same card with immediate feedback.";
+
+  const deckPolicySummary = deckPolicy === DECK_POLICIES.BALANCED_DECK
+    ? "Balanced Deck gives every active option equal exposure before the deck is shuffled."
+    : "Independent Draws samples each card separately from secure randomness, so repeats and gaps can happen.";
+
+  const recommendedSummary = guessPolicy === GUESS_POLICIES.ONE_SHOT
+    ? (deckPolicy === DECK_POLICIES.INDEPENDENT_DRAWS
+      ? "Best for rapid testing and clean first-guess statistics."
+      : "Best for rapid testing with even exposure to every active option.")
+    : (deckPolicy === DECK_POLICIES.BALANCED_DECK
+      ? "Best for structured training with repeated feedback and balanced exposure."
+      : "Best for exploratory training with repeated feedback under fully independent draws.");
 
   return (
     <div style={{ minHeight: "100vh", background: "#141420", color: "#f0ece4", fontFamily: "'Georgia', serif", display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 24px" }}>
@@ -231,13 +357,20 @@ export function Setup({ onStart }) {
           <div style={{ fontSize: "0.78rem", letterSpacing: "0.35em", color: "#6b5aaa", textTransform: "uppercase", marginTop: "6px" }}>ROUND SETUP</div>
         </div>
       </div>
-      <div style={{ width: "100%", maxWidth: "340px", display: "flex", flexDirection: "column", gap: "32px" }}>
+      <div style={{ width: "100%", maxWidth: "420px", display: "flex", flexDirection: "column", gap: "32px" }}>
         <section>
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             <CsvImportButton
-              onSelect={importCsv}
+              buttonLabel="Import CSV To Setup"
+              onSelect={importCsvSummary}
               buttonStyle={{ background: "transparent", border: "1px solid #f59e0b66", borderRadius: "8px", color: "#fbbf24", padding: "12px", fontSize: "0.82rem", fontFamily: "inherit", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", transition: "all 0.2s" }}
               statusStyle={{ fontSize: "0.68rem", color: "#d6b06b", letterSpacing: "0.04em", lineHeight: 1.6 }}
+            />
+            <CsvImportButton
+              buttonLabel="Open CSV Results"
+              onSelect={importCsvToResults}
+              buttonStyle={{ background: "transparent", border: "1px solid #38bdf866", borderRadius: "8px", color: "#7dd3fc", padding: "12px", fontSize: "0.82rem", fontFamily: "inherit", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", transition: "all 0.2s" }}
+              statusStyle={{ fontSize: "0.68rem", color: "#7dd3fc", letterSpacing: "0.04em", lineHeight: 1.6 }}
             />
             {(importStatus || importError) && (
               <div style={{ fontSize: "0.68rem", color: importError ? "#fca5a5" : "#a7f3d0", letterSpacing: "0.04em", lineHeight: 1.6 }}>
@@ -246,15 +379,36 @@ export function Setup({ onStart }) {
             )}
           </div>
         </section>
-        <section>
-          <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
-            <button onClick={() => setAppMode("individual")} style={{ flex: 1, padding: "11px 12px", borderRadius: "10px", border: appMode==="individual" ? "none" : "1.5px solid #2a2a3a", background: appMode==="individual" ? "linear-gradient(135deg, #1e1a2e, #2d1f4e)" : "#1c1c28", color: appMode==="individual" ? "#c4b5fd" : "#555", fontSize: "0.8rem", fontFamily: "inherit", fontWeight: appMode==="individual" ? 600 : 400, letterSpacing: "0.04em", cursor: "pointer", boxShadow: appMode==="individual" ? "0 4px 16px #7c3aed33" : "none", transition: "all 0.15s" }}>Individual Training</button>
-            <button onClick={() => setAppMode("group")} style={{ flex: 1, padding: "11px 12px", borderRadius: "10px", border: appMode==="group" ? "none" : "1.5px solid #2a2a3a", background: appMode==="group" ? "linear-gradient(135deg, #1e1a2e, #2d1f4e)" : "#1c1c28", color: appMode==="group" ? "#c4b5fd" : "#555", fontSize: "0.8rem", fontFamily: "inherit", fontWeight: appMode==="group" ? 600 : 400, letterSpacing: "0.04em", cursor: "pointer", boxShadow: appMode==="group" ? "0 4px 16px #7c3aed33" : "none", transition: "all 0.15s" }}>Group Facilitation</button>
+        <section style={sectionCardStyle}>
+          <SLabel>Session Mode</SLabel>
+          <div style={{ display: "flex", justifyContent: "flex-start" }}>
+            <select value={appMode} onChange={(e) => { setAppMode(e.target.value); clearPreviewMemory(); }} style={modeSelectStyle}>
+              <option value={SESSION_MODES.SOLO} style={{ background: "#19142b", color: "#d8ccff" }}>Solo Training</option>
+              <option value={SESSION_MODES.SHARED} style={{ background: "#19142b", color: "#d8ccff" }}>Shared Training</option>
+              <option value={SESSION_MODES.GROUP} style={{ background: "#19142b", color: "#d8ccff" }}>Group Tracker</option>
+            </select>
           </div>
-          {appMode === "individual" ? (
+          {appMode === SESSION_MODES.SOLO ? (
             <div>
               <SLabel>Your Name</SLabel>
               <input value={soloName} onChange={e => setSoloName(e.target.value)} onClick={e => e.target.select()} placeholder="Your name" style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
+            </div>
+          ) : appMode === SESSION_MODES.SHARED ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div>
+                <SLabel>Your Name</SLabel>
+                <input value={sharedName} onChange={e => setSharedName(e.target.value)} onClick={e => e.target.select()} placeholder="Your name" style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <SLabel>Session ID</SLabel>
+                <input value={shareCode} onChange={e => updateSharedCode(e.target.value)} onClick={e => e.target.select()} placeholder="ABCD-EFGH" style={{ ...inp, width: "100%", boxSizing: "border-box", letterSpacing: "0.14em", textTransform: "uppercase" }} />
+              </div>
+              <button onClick={generateShareSession} style={{ background: "transparent", border: "1px solid #38bdf866", borderRadius: "8px", color: "#7dd3fc", padding: "12px", fontSize: "0.82rem", fontFamily: "inherit", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", transition: "all 0.2s" }}>
+                Generate Session ID
+              </button>
+              <div style={{ fontSize: "0.68rem", color: "#9090bb", letterSpacing: "0.04em", lineHeight: 1.6 }}>
+                Everyone who uses the same session ID will get the same card order for this setup.
+              </div>
             </div>
           ) : (
             <div>
@@ -271,26 +425,9 @@ export function Setup({ onStart }) {
           )}
         </section>
 
-        <section>
-          <SLabel centered>Cards per Round</SLabel>
-          <div style={{display:"flex",justifyContent:"center"}}><SlotPicker value={slots} onChange={(newSlots) => {
-            setSlots(newSlots);
-            slotsUserSet.current = true;
-            if (catMemory.current[category]?.preview) {
-              const g = generateSlots(activeItems, newSlots, mode);
-              const ct = {};
-              activeItems.forEach(c => { ct[c.name] = 0; });
-              g.forEach(s => { ct[s.name] = (ct[s.name]||0)+1; });
-              const p = { generated: g, counts: ct };
-              setPreview(p);
-              catMemory.current[category] = { enabled, preview: p };
-            }
-          }} colorCount={activeItems.length} /></div>
-        </section>
-
-        <section>
-          <div style={{ fontSize: "0.78rem", color: "#9090bb", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "10px", fontWeight: 500 }}>Category</div>
-          <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+        <section style={sectionCardStyle}>
+          <div style={{ fontSize: "0.78rem", color: "#9090bb", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "10px", fontWeight: 500, textAlign: "left" }}>Category</div>
+          <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap" }}>
             {Object.keys(CATEGORIES).map(cat => {
               const isActive = category === cat;
               const styles = {
@@ -307,7 +444,7 @@ export function Setup({ onStart }) {
               );
             })}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "8px", marginBottom: "6px" }}>
             <div style={{ fontSize: "0.72rem", color: "#b0b0cc", letterSpacing: "0.15em", textTransform: "uppercase", fontWeight: 500 }}>Active {CATEGORIES[category].label}</div>
             <div style={{ display: "flex", gap: "6px" }}>
               <button onClick={() => {
@@ -317,7 +454,7 @@ export function Setup({ onStart }) {
                 const effectiveSlots = slotsUserSet.current ? slots : items.length;
                 if (!slotsUserSet.current) setSlots(items.length);
                 if (preview) {
-                  const g = generateSlots(items, effectiveSlots, mode);
+                  const g = buildPreviewDeck(items, effectiveSlots);
                   const ct = {}; items.forEach(c => { ct[c.name]=0; }); g.forEach(sl => { ct[sl.name]=(ct[sl.name]||0)+1; });
                   const p = { generated: g, counts: ct }; setPreview(p); catMemory.current[category] = { enabled: s, preview: p };
                 } else { catMemory.current[category] = { enabled: s, preview: null }; }
@@ -332,7 +469,7 @@ export function Setup({ onStart }) {
                 if (!slotsUserSet.current) setSlots(2);
                 else setSlots(prev => Math.max(2, prev));
                 if (preview) {
-                  const g = generateSlots(pairItems, effectiveSlots, mode);
+                  const g = buildPreviewDeck(pairItems, effectiveSlots);
                   const ct = {}; pairItems.forEach(c => { ct[c.name]=0; }); g.forEach(sl => { ct[sl.name]=(ct[sl.name]||0)+1; });
                   const p = { generated: g, counts: ct }; setPreview(p); catMemory.current[category] = { enabled: s, preview: p };
                 } else { catMemory.current[category] = { enabled: s, preview: null }; }
@@ -355,28 +492,62 @@ export function Setup({ onStart }) {
               );
             })}
           </div>
-        </section>
 
-        <section>
-          <div style={{ fontSize: "0.72rem", color: "#b0b0cc", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "10px", fontWeight: 500 }}>Generation Mode</div>
-          <div style={{ display: "flex", gap: "10px" }}>
-            <button onClick={() => { setMode("stratified"); setPreview(null); Object.keys(CATEGORIES).forEach(cat => { catMemory.current[cat] = { enabled: catMemory.current[cat]?.enabled ?? new Set(CATEGORIES[cat].items.map(c => c.name)), preview: null }; }); }} style={{ background: mode==="stratified" ? "#1a0f00" : "transparent", border: `2px solid ${mode==="stratified" ? "#f97316" : "#252530"}`, borderRadius: "8px", padding: "9px 18px", cursor: "pointer", color: mode==="stratified" ? "#f97316" : "#444", fontSize: "0.83rem", fontFamily: "inherit", transition: "all 0.12s" }}>⚖️ Stratified</button>
-            <button onClick={() => { setMode("pure"); setPreview(null); Object.keys(CATEGORIES).forEach(cat => { catMemory.current[cat] = { enabled: catMemory.current[cat]?.enabled ?? new Set(CATEGORIES[cat].items.map(c => c.name)), preview: null }; }); }} style={{ background: mode==="pure" ? "#00101a" : "transparent", border: `2px solid ${mode==="pure" ? "#38bdf8" : "#252530"}`, borderRadius: "8px", padding: "9px 18px", cursor: "pointer", color: mode==="pure" ? "#38bdf8" : "#444", fontSize: "0.83rem", fontFamily: "inherit", transition: "all 0.12s" }}>🎲 Pure Crypto</button>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", marginTop: "12px" }}>
+            <div style={{ fontSize: "0.82rem", color: "#d8ccff", letterSpacing: "0.16em", textTransform: "uppercase", fontWeight: 600, whiteSpace: "nowrap" }}>
+              Cards per Round
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", flex: 1 }}>
+              <SlotPicker value={slots} onChange={(newSlots) => {
+                setSlots(newSlots);
+                slotsUserSet.current = true;
+                if (catMemory.current[category]?.preview) {
+                  const g = buildPreviewDeck(activeItems, newSlots);
+                  const ct = {};
+                  activeItems.forEach(c => { ct[c.name] = 0; });
+                  g.forEach(s => { ct[s.name] = (ct[s.name]||0)+1; });
+                  const p = { generated: g, counts: ct };
+                  setPreview(p);
+                  catMemory.current[category] = { enabled, preview: p };
+                }
+              }} colorCount={activeItems.length} />
+            </div>
           </div>
         </section>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "8px" }}>
+        <section style={sectionCardStyle}>
+          <div style={{ fontSize: "0.72rem", color: "#b0b0cc", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "10px", fontWeight: 500 }}>Guess Policy</div>
+          <div style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
+            <button onClick={() => setGuessPolicy(GUESS_POLICIES.REPEAT_UNTIL_CORRECT)} style={{ flex: "1 1 0", minWidth: 0, background: guessPolicy===GUESS_POLICIES.REPEAT_UNTIL_CORRECT ? "#1a0f00" : "transparent", border: `2px solid ${guessPolicy===GUESS_POLICIES.REPEAT_UNTIL_CORRECT ? "#f97316" : "#252530"}`, borderRadius: "8px", padding: "10px 12px", cursor: "pointer", color: guessPolicy===GUESS_POLICIES.REPEAT_UNTIL_CORRECT ? "#f97316" : "#444", fontSize: "0.8rem", fontFamily: "inherit", transition: "all 0.12s", textAlign: "center", letterSpacing: "0.02em" }}>Repeat Until Correct</button>
+            <button onClick={() => setGuessPolicy(GUESS_POLICIES.ONE_SHOT)} style={{ flex: "1 1 0", minWidth: 0, background: guessPolicy===GUESS_POLICIES.ONE_SHOT ? "#00101a" : "transparent", border: `2px solid ${guessPolicy===GUESS_POLICIES.ONE_SHOT ? "#38bdf8" : "#252530"}`, borderRadius: "8px", padding: "10px 12px", cursor: "pointer", color: guessPolicy===GUESS_POLICIES.ONE_SHOT ? "#38bdf8" : "#444", fontSize: "0.8rem", fontFamily: "inherit", transition: "all 0.12s", textAlign: "center", letterSpacing: "0.02em" }}>One Shot</button>
+          </div>
+
+          <div style={{ fontSize: "0.72rem", color: "#b0b0cc", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "10px", fontWeight: 500 }}>Deck Policy</div>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button onClick={() => { setDeckPolicy(DECK_POLICIES.BALANCED_DECK); clearPreviewMemory(); }} style={{ flex: "1 1 0", minWidth: 0, background: deckPolicy===DECK_POLICIES.BALANCED_DECK ? "#1a0f00" : "transparent", border: `2px solid ${deckPolicy===DECK_POLICIES.BALANCED_DECK ? "#f97316" : "#252530"}`, borderRadius: "8px", padding: "10px 12px", cursor: "pointer", color: deckPolicy===DECK_POLICIES.BALANCED_DECK ? "#f97316" : "#444", fontSize: "0.8rem", fontFamily: "inherit", transition: "all 0.12s", textAlign: "center", letterSpacing: "0.02em" }}>Balanced Deck</button>
+            <button onClick={() => { setDeckPolicy(DECK_POLICIES.INDEPENDENT_DRAWS); clearPreviewMemory(); }} style={{ flex: "1 1 0", minWidth: 0, background: deckPolicy===DECK_POLICIES.INDEPENDENT_DRAWS ? "#00101a" : "transparent", border: `2px solid ${deckPolicy===DECK_POLICIES.INDEPENDENT_DRAWS ? "#38bdf8" : "#252530"}`, borderRadius: "8px", padding: "10px 12px", cursor: "pointer", color: deckPolicy===DECK_POLICIES.INDEPENDENT_DRAWS ? "#38bdf8" : "#444", fontSize: "0.8rem", fontFamily: "inherit", transition: "all 0.12s", textAlign: "center", letterSpacing: "0.02em" }}>Independent Draws</button>
+          </div>
+
           <button onClick={runPreview} disabled={!canStart} style={{ background: canStart ? "#0f1a2e" : "#1c1c28", border: canStart ? "1px solid #3b82f6" : "1px solid #252530", borderRadius: "8px", color: canStart ? "#60a5fa" : "#333", padding: "12px", fontSize: "0.82rem", fontFamily: "inherit", letterSpacing: "0.1em", textTransform: "uppercase", cursor: canStart ? "pointer" : "not-allowed", transition: "all 0.2s" }}>
             {preview ? "🔄 Re-roll Preview" : "🎲 Preview Distribution"}
           </button>
           <div style={{ fontSize: "0.68rem", color: "#6060a0", letterSpacing: "0.04em", lineHeight: 1.6 }}>
-            {mode === "stratified"
-              ? "Stratified: every item appears equally, counts guaranteed. Order is shuffled by CSPRNG — computationally unpredictable, seeded from OS hardware entropy."
-              : "CSPRNG: each card drawn independently from OS entropy (hardware noise, CPU jitter). Sits between deterministic PRNG and true QRNG — computationally unpredictable but classically deterministic in principle. Items can cluster, repeat, or go missing from the pool entirely."}
+            {deckPolicy === DECK_POLICIES.BALANCED_DECK
+              ? "Balanced Deck: every active option appears as evenly as possible, then the deck order is shuffled by secure randomness."
+              : "Independent Draws: each card target is drawn separately from secure randomness, so repeats and missing options can happen naturally."}
             {preview && <span style={{ color: "#7070aa" }}> · {slots} cards locked in.</span>}
           </div>
+          <div style={{ background: "#141420", border: "1px solid #252530", borderLeft: "3px solid #7c3aed", borderRadius: "10px", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div style={{ fontSize: "0.68rem", color: "#b9b4d8", letterSpacing: "0.12em", textTransform: "uppercase" }}>Mode Summary</div>
+            <div style={{ fontSize: "0.76rem", color: "#f0ece4", lineHeight: 1.6 }}>{guessPolicySummary}</div>
+            <div style={{ fontSize: "0.76rem", color: "#c4b5fd", lineHeight: 1.6 }}>{deckPolicySummary}</div>
+            <div style={{ fontSize: "0.72rem", color: "#9090bb", lineHeight: 1.6 }}>{recommendedSummary}</div>
+          </div>
+        </section>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "8px" }}>
           <button onClick={go} disabled={!canStart || !preview} style={{ background: (canStart && preview) ? "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)" : "#1c1c28", border: (canStart && preview) ? "none" : "1px solid #252530", borderRadius: "8px", color: (canStart && preview) ? "white" : "#333", padding: "15px", fontSize: "0.95rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.18em", textTransform: "uppercase", cursor: (canStart && preview) ? "pointer" : "not-allowed", boxShadow: (canStart && preview) ? "0 4px 28px #7c3aed55, 0 0 60px #3b82f622" : "none", transition: "all 0.2s" }}>
-            {appMode === "individual" ? "Begin Training →" : "Start Round →"}
+            {appMode === SESSION_MODES.GROUP ? "Start Round →" : "Begin Training →"}
           </button>
         </div>
       </div>

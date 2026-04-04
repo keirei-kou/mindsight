@@ -72,16 +72,3 @@ export function cryptoShuffle(arr) {
   }
   return copy;
 }
-
-export function generateSlots(colors, count, mode) {
-  if (mode === "stratified") {
-    const sets = Math.ceil(count / colors.length);
-    const pool = Array.from({ length: sets }, () => [...colors]).flat();
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = cryptoRandomInt(i + 1);
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-    return pool.slice(0, count);
-  }
-  return Array.from({ length: count }, () => colors[cryptoRandomInt(colors.length)]);
-}

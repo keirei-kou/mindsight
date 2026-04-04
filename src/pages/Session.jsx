@@ -1,11 +1,16 @@
 import { useState, useEffect } from "react";
 import { GhostBtn } from '../components/GhostBtn.jsx';
 import { useSlotTimers } from '../hooks/useSlotTimers.js';
-import { itemMap, accuracyScore, proximityScore, patternLabel, fmt } from '../utils.js';
+import { formatGuessPositionLabel } from '../analytics.js';
+import { buildGroupParticipantSummary } from '../groupAnalytics.js';
+import { createSessionId, GUESS_POLICIES, SESSION_MODES } from '../sessionModel.js';
+import { itemMap, fmt } from '../utils.js';
 
 const nowMs = () => Date.now();
 
-export function Session({ participants: initP, slots, colors, category, onEnd }) {
+export function Session({ participants: initP, slots, colors, category, guessPolicy, deckPolicy, onEnd }) {
+  const [sessionId] = useState(() => createSessionId());
+  const [startedAt] = useState(() => new Date().toISOString());
   const itemLookup = itemMap(colors);
   const [participants, setParticipants] = useState(initP);
   const [activeSlot, setActiveSlot]     = useState(null);
@@ -162,10 +167,9 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
     const guesses = cell.guesses.map(g => g.color);
     if (!guesses.length && !cell.dnf) return null;
     const resolved = isResolved(pid, si);
-    const acc      = resolved ? accuracyScore(guesses.length) : 0;
-    const isColors = category === "Colors";
-    const prox     = (guesses.length > 0 && isColors) ? proximityScore(guesses[0], target) : null;
-    const pattern  = (guesses.length > 0 && isColors) ? patternLabel(guesses, target) : null;
+    const firstGuess = guesses[0] ?? null;
+    const firstGuessCorrect = firstGuess === target;
+    const correctGuessIndex = resolved ? guesses.findIndex((guess) => guess === target) + 1 : null;
     const slotStartTs = timers[si].startMs;
     const deltas = [];
     if (slotStartTs && cell.guesses.length > 0) {
@@ -173,23 +177,7 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
       for (let i = 1; i < cell.guesses.length; i++) deltas.push(cell.guesses[i].ts - cell.guesses[i-1].ts);
     }
     const avgTime = deltas.length > 1 ? deltas.slice(0,-1).reduce((a,b)=>a+b,0)/(deltas.length-1) : (deltas.length===1 ? deltas[0] : null);
-    return { acc, prox, pattern, deltas, avgTime, resolved };
-  };
-
-  const participantSummary = (pid) => {
-    const accs = [], proxs = [], times = [];
-    slots.forEach((_, si) => {
-      const s = cellStats(pid, si);
-      if (!s) return;
-      accs.push(s.acc);
-      if (s.prox !== null) proxs.push(s.prox);
-      if (s.avgTime !== null) times.push(s.avgTime);
-    });
-    return {
-      avgAcc:  accs.length  ? Math.round(accs.reduce((a,b)=>a+b,0)/accs.length)  : null,
-      avgProx: proxs.length ? Math.round(proxs.reduce((a,b)=>a+b,0)/proxs.length) : null,
-      avgTime: times.length ? times.reduce((a,b)=>a+b,0)/times.length             : null,
-    };
+    return { deltas, avgTime, resolved, firstGuessCorrect, correctGuessIndex };
   };
 
   const NAME_W = 160, CELL_W = 200, SUMM_W = 200;
@@ -197,10 +185,16 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
 
   const finishSession = () => {
     onEnd({
+      appMode: SESSION_MODES.GROUP,
+      shareCode: null,
+      sessionId,
+      startedAt,
       participants,
       slots,
       colors,
       category,
+      guessPolicy,
+      deckPolicy,
       session,
       timers: timers.map(timer => ({ ...timer })),
       totalSessionMs: totalMs,
@@ -228,7 +222,7 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
       <div style={{ overflowX: "auto", flex: 1, paddingTop: "16px", paddingRight: "16px", paddingBottom: "16px", paddingLeft: "0", position: "relative" }}>
         <div style={{ minWidth: `${NAME_W + slots.length*CELL_W + SUMM_W + 32}px` }}>
           <div style={{ display: "flex", marginBottom: "4px" }}>
-            <div style={{ width: `${NAME_W}px`, minWidth: `${NAME_W}px`, position: "sticky", left: 0, background: "#141420", zIndex: 2, boxShadow: "4px 0 8px #111118" }} />
+            <div style={{ width: `${NAME_W}px`, minWidth: `${NAME_W}px`, boxSizing: "border-box", position: "sticky", left: 0, background: "#141420", zIndex: 2, boxShadow: "4px 0 8px #111118" }} />
             {slots.map((slot, si) => {
               const isActive = si === activeSlot;
               const ms = elapsed(si);
@@ -236,7 +230,7 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
               return (
                 <div key={si} onClick={() => activateSlot(si)}
                   title={si === activeSlot ? "" : isSlotLocked(activeSlot) ? "🚫 Cannot select card while current card is in session" : activeSlot === null ? "Click this card to edit guesses" : allResolved(activeSlot) ? "Click this card to edit guesses" : ""}
-                  style={{ width: `${CELL_W}px`, minWidth: `${CELL_W}px`, textAlign: "center", cursor: (si !== activeSlot && isSlotLocked(activeSlot)) ? "not-allowed" : "pointer", padding: "6px 4px 8px", borderRadius: "6px 6px 0 0", background: isActive ? "#1c1c28" : "transparent", borderBottom: `2px solid ${isActive ? slot.hex : "#2e2e44"}`, transition: "all 0.12s", userSelect: "none", opacity: (si !== activeSlot && isSlotLocked(activeSlot) && si > activeSlot) ? 0.35 : 1 }}>
+                  style={{ width: `${CELL_W}px`, minWidth: `${CELL_W}px`, boxSizing: "border-box", textAlign: "center", cursor: (si !== activeSlot && isSlotLocked(activeSlot)) ? "not-allowed" : "pointer", padding: "6px 4px 8px", borderRadius: "6px 6px 0 0", background: isActive ? "#1c1c28" : "transparent", borderBottom: `2px solid ${isActive ? slot.hex : "#2e2e44"}`, transition: "all 0.12s", userSelect: "none", opacity: (si !== activeSlot && isSlotLocked(activeSlot) && si > activeSlot) ? 0.35 : 1 }}>
                   <div style={{ fontSize: "0.72rem", fontWeight: 600, color: isActive ? slot.hex : "#6060a0", letterSpacing: "0.04em", marginBottom: "2px" }}>#{si+1}</div>
                   <div style={{ fontSize: "1.1rem", lineHeight: 1 }}>{slot.symbol}</div>
                   <div style={{ fontSize: "0.62rem", color: isActive ? slot.hex : "#5a5a7a", letterSpacing: "0.03em", marginTop: "2px", fontWeight: isActive ? 600 : 400 }}>{slot.name}</div>
@@ -244,17 +238,28 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
                 </div>
               );
             })}
-            <div style={{ width: `${SUMM_W}px`, minWidth: `${SUMM_W}px`, padding: "6px 8px 8px", borderBottom: "2px solid #1c1c28" }}>
+            <div style={{ width: `${SUMM_W}px`, minWidth: `${SUMM_W}px`, boxSizing: "border-box", padding: "6px 8px 8px", borderBottom: "2px solid #1c1c28" }}>
               <div style={{ fontSize: "0.65rem", color: "#7070aa", letterSpacing: "0.08em", textTransform: "uppercase" }}>Total Round</div>
               {totalMs && <div style={{ fontSize: "0.75rem", color: "#22c55e", marginTop: "2px" }}>{fmt(totalMs)}</div>}
             </div>
           </div>
 
           {participants.map(p => {
-            const summ = participantSummary(p.id);
+            const summary = buildGroupParticipantSummary({
+              participant: p,
+              session,
+              slots,
+              activeOptions: colors,
+              category,
+              guessPolicy,
+              deckPolicy,
+              timers,
+            });
+            const firstGuessPercent = summary.analytics?.firstGuessAccuracy != null ? Math.round(summary.analytics.firstGuessAccuracy * 100) : null;
+            const weightedPercent = summary.analytics?.weightedScore != null ? Math.round(summary.analytics.weightedScore * 100) : null;
             return (
               <div key={p.id} style={{ display: "flex", alignItems: "stretch", marginBottom: "4px", opacity: p.active ? 1 : 0.25, transition: "opacity 0.2s" }}>
-                <div style={{ width: `${NAME_W}px`, minWidth: `${NAME_W}px`, display: "flex", alignItems: "center", justifyContent: "center", paddingRight: "8px", paddingLeft: "4px", position: "sticky", left: 0, background: "#141420", zIndex: 2, boxShadow: "4px 0 8px #111118", border: "1px solid #1e1e2e", borderRadius: "5px" }}>
+                <div style={{ width: `${NAME_W}px`, minWidth: `${NAME_W}px`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", paddingRight: "8px", paddingLeft: "4px", position: "sticky", left: 0, background: "#141420", zIndex: 2, boxShadow: "4px 0 8px #111118", border: "1px solid #1e1e2e", borderRadius: "5px" }}>
                   <button onClick={() => toggleP(p.id)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", color: "#f0ece4", padding: "4px 0", width: "100%", textAlign: "center", justifyContent: "center", fontFamily: "inherit" }}>
                     <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: p.active ? "#22c55e" : "#252535", flexShrink: 0, transition: "background 0.2s" }} />
                     <span style={{ fontSize: "0.82rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100px" }}>{p.name}</span>
@@ -267,7 +272,7 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
                   const isActive = si === activeSlot;
                   const stats    = cellStats(p.id, si);
                   return (
-                    <div key={si} style={{ width: `${CELL_W}px`, minWidth: `${CELL_W}px`, background: isActive ? "#181825" : "#111118", border: resolved ? `1px solid ${slot.hex}66` : isActive ? "1px solid #3a3a55" : "1px solid #1e1e2e", borderRadius: "5px", padding: "8px 7px", display: "flex", flexDirection: "column", gap: "5px", transition: "background 0.12s", alignItems: "center", textAlign: "center", userSelect: "none" }}>
+                    <div key={si} style={{ width: `${CELL_W}px`, minWidth: `${CELL_W}px`, boxSizing: "border-box", background: isActive ? "#181825" : "#111118", border: resolved ? `1px solid ${slot.hex}66` : isActive ? "1px solid #3a3a55" : "1px solid #1e1e2e", borderRadius: "5px", padding: "8px 7px", display: "flex", flexDirection: "column", gap: "5px", transition: "background 0.12s", alignItems: "center", textAlign: "center", userSelect: "none" }}>
                       <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "2px", minHeight: "18px" }}>
                         {cell.guesses.map((g, gi) => {
                           const gc = itemLookup[g.color];
@@ -305,12 +310,23 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
                         })}
                         {cell.dnf && <span style={{ fontSize: "0.58rem", color: "#6060a0", fontStyle: "italic" }}>skip</span>}
                       </div>
-                      {stats && (
-                        <div style={{ fontSize: "0.58rem", color: "#7070aa", lineHeight: 1.5, display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                          <span style={{ color: stats.acc >= 70 ? "#22c55e" : stats.acc >= 40 ? "#eab308" : "#ef4444" }}>Acc {stats.acc}%</span>
+                      {false && stats && (
+                        <div style={{ fontSize: "0.58rem", color: "#7070aa", lineHeight: 1.5, display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "4px" }}>
+                          <span style={{ color: stats.firstGuessCorrect ? "#22c55e" : "#ef4444" }}>{stats.firstGuessCorrect ? "1st ✓" : "1st ✕"}</span>
                           {stats.prox !== null && <span style={{ color: "#8888bb" }}>· Prox {stats.prox}%</span>}
                           {stats.avgTime !== null && <span style={{ color: "#7070aa" }}>· Avg t {fmt(stats.avgTime)}</span>}
                           {stats.pattern && <span style={{ color: "#6060a0", fontStyle: "italic" }}>· {stats.pattern}</span>}
+                        </div>
+                      )}
+                      {stats && (
+                        <div style={{ fontSize: "0.58rem", color: "#7070aa", lineHeight: 1.5, display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "4px" }}>
+                          <span style={{ color: stats.firstGuessCorrect ? "#22c55e" : "#ef4444" }}>{stats.firstGuessCorrect ? "1st yes" : "1st no"}</span>
+                          {stats.avgTime !== null && <span style={{ color: "#7070aa" }}>| t {fmt(stats.avgTime)}</span>}
+                        </div>
+                      )}
+                      {stats?.correctGuessIndex !== null && (
+                        <div style={{ fontSize: "0.58rem", color: "#93c5fd", lineHeight: 1.4 }}>
+                          {formatGuessPositionLabel(stats.correctGuessIndex)}
                         </div>
                       )}
                       {isActive && p.active && (!resolved || (editCursor?.pid === p.id && editCursor?.si === si)) && (
@@ -362,11 +378,12 @@ export function Session({ participants: initP, slots, colors, category, onEnd })
                   );
                 })}
 
-                <div style={{ width: `${SUMM_W}px`, minWidth: `${SUMM_W}px`, background: "#181824", borderRadius: "5px", padding: "8px 10px", display: "flex", flexDirection: "column", justifyContent: "center", gap: "4px" }}>
-                  {summ.avgAcc !== null ? <>
-                    <div style={{ fontSize: "0.65rem", color: summ.avgAcc >= 70 ? "#22c55e" : summ.avgAcc >= 40 ? "#eab308" : "#ef4444" }}>Avg Acc {summ.avgAcc}%</div>
-                    {summ.avgProx !== null && <div style={{ fontSize: "0.62rem", color: "#7070aa" }}>Avg Prox {summ.avgProx}%</div>}
-                    {summ.avgTime !== null && <div style={{ fontSize: "0.62rem", color: "#6060a0" }}>Avg Time {fmt(summ.avgTime)}</div>}
+                <div style={{ width: `${SUMM_W}px`, minWidth: `${SUMM_W}px`, boxSizing: "border-box", background: "#181824", borderRadius: "5px", padding: "8px 10px", display: "flex", flexDirection: "column", justifyContent: "center", gap: "4px" }}>
+                  {firstGuessPercent !== null ? <>
+                    <div style={{ fontSize: "0.65rem", color: firstGuessPercent >= 70 ? "#22c55e" : firstGuessPercent >= 40 ? "#eab308" : "#ef4444" }}>First Guess {firstGuessPercent}%</div>
+                    {guessPolicy !== GUESS_POLICIES.ONE_SHOT && weightedPercent !== null && <div style={{ fontSize: "0.62rem", color: "#93c5fd" }}>Weighted {weightedPercent}%</div>}
+                    {guessPolicy !== GUESS_POLICIES.ONE_SHOT && summary.analytics?.averageGuessPosition != null && <div style={{ fontSize: "0.62rem", color: "#60a5fa" }}>Avg Pos {summary.analytics.averageGuessPosition.toFixed(2)}</div>}
+                    {summary.averageTimeMs !== null && <div style={{ fontSize: "0.62rem", color: "#6060a0" }}>Avg Time {fmt(summary.averageTimeMs)}</div>}
                   </> : <div style={{ fontSize: "0.6rem", color: "#252535" }}>—</div>}
                 </div>
               </div>

@@ -1,4 +1,7 @@
 import { CATEGORIES } from './constants.js';
+import { buildSessionAnalytics, buildTrialRecord } from './analytics.js';
+import { buildGroupParticipantSummary, buildGroupRollupSummary } from './groupAnalytics.js';
+import { accuracyScore, patternLabel, proximityScore } from './utils.js';
 
 export function slugifyCsvPart(value, fallback = "session") {
   return String(value || fallback)
@@ -34,83 +37,235 @@ export function downloadCsv(filename, csvText) {
   URL.revokeObjectURL(url);
 }
 
+function toCsvCell(value) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
+function joinPipe(values) {
+  return Array.isArray(values) ? values.filter(Boolean).join("|") : "";
+}
+
 export function buildSoloResultsCsv(data) {
-  const { name, results, category } = data;
-  const sessionId = new Date().toISOString().replace(/[:.]/g, "-");
-  const now = new Date();
+  const {
+    appMode = "",
+    shareCode = "",
+    sessionId = new Date().toISOString().replace(/[:.]/g, "-"),
+    startedAt = null,
+    endedAt = null,
+    name,
+    results,
+    category,
+    trials = [],
+    analytics = null,
+    guessPolicy = "",
+    deckPolicy = "",
+    optionCount = data.colors?.length ?? 0,
+    optionValues = data.colors?.map((item) => item.name) ?? [],
+  } = data;
+  const now = new Date(endedAt || startedAt || new Date());
   const dateStr = now.toLocaleDateString("en-CA");
   const timeStr = now.toLocaleTimeString("en-GB");
+  const effectiveTrials = trials.length > 0
+    ? trials
+    : results.map((result, index) => buildTrialRecord({
+        cardIndex: index + 1,
+        category,
+        optionCount,
+        targetValue: result.target,
+        guesses: result.guesses,
+        guessPolicy,
+        deckPolicy,
+        timeToFirstMs: result.timeToFirst ?? null,
+        guessIntervalsMs: result.guessDeltas ?? [],
+        trialDurationMs: [result.timeToFirst, ...(result.guessDeltas || [])]
+          .filter((value) => value != null)
+          .reduce((sum, value) => sum + value, 0) || null,
+      }));
 
   const headers = [
-    "session_id", "date", "time", "name", "category", "card_position",
-    "round_size", "target", "guesses", "attempts", "accuracy",
-    "proximity", "pattern", "first_guess_correct",
-    "time_to_first_s", "time_per_guess_s", "card_total_time_s", "skipped"
+    "session_id",
+    "app_mode",
+    "share_code",
+    "started_at",
+    "ended_at",
+    "date",
+    "time",
+    "name",
+    "category",
+    "guess_policy",
+    "deck_policy",
+    "option_count",
+    "option_values",
+    "trial_count",
+    "card_index",
+    "target_value",
+    "guesses",
+    "first_guess",
+    "first_guess_correct",
+    "correct_guess_index",
+    "guess_count",
+    "time_to_first_ms",
+    "guess_intervals_ms",
+    "trial_duration_ms",
+    "score_percent",
+    "proximity",
+    "pattern",
+    "skipped",
+    "first_guess_accuracy",
+    "z_score",
+    "average_guess_position",
+    "guess_position_std_dev",
+    "weighted_score",
   ];
 
-  const rows = results.map((r, i) => {
-    const timeToFirst = r.timeToFirst != null ? (r.timeToFirst / 1000).toFixed(2) : "";
-    const guessDeltas = r.guessDeltas?.length
-      ? r.guessDeltas.map(d => (d / 1000).toFixed(2)).join("|")
-      : "";
-    const allTimes = r.timeToFirst != null
-      ? [r.timeToFirst, ...(r.guessDeltas || [])]
-      : [];
-    const cardTotal = allTimes.length ? (allTimes.reduce((a, b) => a + b, 0) / 1000).toFixed(2) : "";
+  const rows = effectiveTrials.map((trial, index) => {
+    const legacyResult = results[index];
+    const scorePercent = legacyResult?.acc ?? (
+      Number.isFinite(trial.correctGuessIndex)
+        ? accuracyScore(trial.correctGuessIndex)
+        : 0
+    );
+    const prox = legacyResult?.prox ?? (
+      category === "Colors" && trial.firstGuess
+        ? proximityScore(trial.firstGuess, trial.targetValue)
+        : null
+    );
+    const pattern = legacyResult?.pattern ?? (
+      category === "Colors" && trial.guesses.length > 0
+        ? patternLabel(trial.guesses, trial.targetValue)
+        : null
+    );
+    const skipped = legacyResult?.skipped === true;
 
     return [
-      sessionId, dateStr, timeStr, name, category, i + 1, results.length,
-      r.target, r.guesses.join("|"),
-      r.skipped ? 0 : r.guesses.length,
-      r.acc, r.prox ?? "", r.pattern ?? "",
-      r.skipped ? "false" : (r.guesses[0] === r.target ? "true" : "false"),
-      timeToFirst, guessDeltas, cardTotal,
-      r.skipped ? "true" : "false"
-    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
+      sessionId,
+      appMode,
+      shareCode,
+      startedAt ?? "",
+      endedAt ?? "",
+      dateStr,
+      timeStr,
+      name,
+      category,
+      guessPolicy,
+      deckPolicy,
+      optionCount,
+      joinPipe(optionValues),
+      effectiveTrials.length,
+      trial.cardIndex,
+      trial.targetValue,
+      joinPipe(trial.guesses),
+      trial.firstGuess ?? "",
+      trial.firstGuessCorrect,
+      trial.correctGuessIndex ?? "",
+      trial.guessCount,
+      trial.timeToFirstMs ?? "",
+      joinPipe(trial.guessIntervalsMs),
+      trial.trialDurationMs ?? "",
+      scorePercent,
+      prox ?? "",
+      pattern ?? "",
+      skipped,
+      analytics?.firstGuessAccuracy ?? "",
+      analytics?.zScore ?? "",
+      analytics?.averageGuessPosition ?? "",
+      analytics?.guessPositionStdDev ?? "",
+      analytics?.weightedScore ?? "",
+    ].map(toCsvCell).join(",");
   });
 
   return [headers.join(","), ...rows].join("\n");
 }
 
 function buildGroupRows(data) {
-  const { participants, slots, category, session, timers = [], endedAt } = data;
-  const now = endedAt ? new Date(endedAt) : new Date();
-  const sessionId = new Date(endedAt || now).toISOString().replace(/[:.]/g, "-");
+  const {
+    participants,
+    slots,
+    colors,
+    category,
+    session,
+    timers = [],
+    endedAt,
+    sessionId = new Date(endedAt || new Date()).toISOString().replace(/[:.]/g, "-"),
+    startedAt = null,
+    appMode = "",
+    shareCode = "",
+    guessPolicy = "",
+    deckPolicy = "",
+  } = data;
+  const now = new Date(endedAt || startedAt || new Date());
   const dateStr = now.toLocaleDateString("en-CA");
   const timeStr = now.toLocaleTimeString("en-GB");
+  const optionValues = colors?.map((item) => item.name) ?? [];
+  const optionCount = optionValues.length;
+  const participantSummaries = participants.map((participant) => {
+    return buildGroupParticipantSummary({
+      participant,
+      session,
+      slots,
+      activeOptions: colors,
+      category,
+      guessPolicy,
+      deckPolicy,
+      timers,
+    });
+  });
+  const rollup = buildGroupRollupSummary(participantSummaries, guessPolicy);
 
-  return participants.flatMap((participant) => {
-    return slots.map((slot, index) => {
-      const cell = session?.[participant.id]?.[index] ?? { guesses: [], dnf: false };
-      const guesses = cell.guesses ?? [];
-      const guessNames = guesses.map(g => g.color);
-      const resolved = guessNames.length > 0 && guessNames[guessNames.length - 1] === slot.name;
-      const attempts = cell.dnf ? 0 : guessNames.length;
-      const accuracy = resolved ? Math.round((1 / Math.max(1, guessNames.length)) * 100) : 0;
-      const slotTimer = timers[index] ?? {};
-      const timeToFirst = guesses[0]?.ts && slotTimer.startMs ? ((guesses[0].ts - slotTimer.startMs) / 1000).toFixed(2) : "";
-      const guessDeltas = guesses.slice(1).map((guess, guessIndex) => ((guess.ts - guesses[guessIndex].ts) / 1000).toFixed(2));
-      const cardTotal = guesses.length && slotTimer.startMs ? ((guesses[guesses.length - 1].ts - slotTimer.startMs) / 1000).toFixed(2) : "";
+  return participantSummaries.flatMap((summary) => {
+    const participant = summary.participant;
+    const firstGuessAccuracy = summary.analytics?.firstGuessAccuracy ?? "";
+    const zScore = summary.analytics?.zScore ?? "";
+    const averageGuessPosition = summary.analytics?.averageGuessPosition ?? "";
+    const guessPositionStdDev = summary.analytics?.guessPositionStdDev ?? "";
+    const weightedScore = summary.analytics?.weightedScore ?? "";
+
+    return summary.trials.map((trial, index) => {
+      const cell = session?.[participant.id]?.[index] ?? { dnf: false };
+      const legacyAccuracy = Number.isFinite(trial.correctGuessIndex)
+        ? accuracyScore(trial.correctGuessIndex)
+        : 0;
 
       return [
         sessionId,
+        appMode,
+        shareCode,
+        startedAt ?? "",
+        endedAt ?? "",
         dateStr,
         timeStr,
+        participant.id,
         participant.name,
         participant.active ? "true" : "false",
         category,
-        index + 1,
+        guessPolicy,
+        deckPolicy,
+        optionCount,
+        joinPipe(optionValues),
         slots.length,
-        slot.name,
-        guessNames.join("|"),
-        attempts,
-        accuracy,
+        trial.cardIndex,
+        trial.targetValue,
+        joinPipe(trial.guesses),
+        trial.firstGuess ?? "",
+        trial.firstGuessCorrect,
+        trial.correctGuessIndex ?? "",
+        trial.guessCount,
+        trial.timeToFirstMs ?? "",
+        joinPipe(trial.guessIntervalsMs),
+        trial.trialDurationMs ?? "",
+        legacyAccuracy,
         cell.dnf ? "true" : "false",
-        resolved ? "true" : "false",
-        timeToFirst,
-        guessDeltas.join("|"),
-        cardTotal,
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
+        firstGuessAccuracy,
+        zScore,
+        averageGuessPosition,
+        guessPositionStdDev,
+        weightedScore,
+        rollup.firstGuessAccuracy ?? "",
+        rollup.zScore ?? "",
+        rollup.averageGuessPosition ?? "",
+        rollup.weightedScore ?? "",
+        rollup.averageTimeMs ?? "",
+      ].map(toCsvCell).join(",");
     });
   });
 }
@@ -118,22 +273,43 @@ function buildGroupRows(data) {
 export function buildGroupResultsCsv(data) {
   const headers = [
     "session_id",
+    "app_mode",
+    "share_code",
+    "started_at",
+    "ended_at",
     "date",
     "time",
+    "participant_id",
     "participant_name",
     "participant_active",
     "category",
-    "card_position",
-    "round_size",
-    "target",
+    "guess_policy",
+    "deck_policy",
+    "option_count",
+    "option_values",
+    "trial_count",
+    "card_index",
+    "target_value",
     "guesses",
-    "attempts",
-    "accuracy",
+    "first_guess",
+    "first_guess_correct",
+    "correct_guess_index",
+    "guess_count",
+    "time_to_first_ms",
+    "guess_intervals_ms",
+    "trial_duration_ms",
+    "score_percent",
     "skipped",
-    "resolved",
-    "time_to_first_s",
-    "time_per_guess_s",
-    "card_total_time_s",
+    "participant_first_guess_accuracy",
+    "participant_z_score",
+    "participant_average_guess_position",
+    "participant_guess_position_std_dev",
+    "participant_weighted_score",
+    "group_first_guess_accuracy",
+    "group_z_score",
+    "group_average_guess_position",
+    "group_weighted_score",
+    "group_average_time_ms",
   ];
 
   return [headers.join(","), ...buildGroupRows(data)].join("\n");
@@ -225,7 +401,7 @@ function buildColorsForCategory(category, rows) {
 
   const namesInCsv = new Set(
     rows.flatMap((row) => [
-      row.target,
+      row.target ?? row.target_value,
       ...splitPipe(row.guesses),
     ])
   );
@@ -243,14 +419,27 @@ export function parseResultsCsvSummary(text) {
     return {
       kind: "group",
       category: first.category || "Colors",
-      roundSize: asNumber(first.round_size) ?? rows.length,
+      roundSize: asNumber(first.trial_count) ?? asNumber(first.round_size) ?? rows.length,
       participantNames: names,
+    };
+  }
+
+  if ("card_index" in first || "target_value" in first) {
+    return {
+      kind: "solo",
+      appMode: first.app_mode || "solo",
+      shareCode: first.share_code || "",
+      category: first.category || "Colors",
+      roundSize: asNumber(first.trial_count) ?? rows.length,
+      participantNames: first.name ? [first.name] : [],
     };
   }
 
   if ("name" in first) {
     return {
       kind: "solo",
+      appMode: first.app_mode || "solo",
+      shareCode: first.share_code || "",
       category: first.category || "Colors",
       roundSize: asNumber(first.round_size) ?? rows.length,
       participantNames: first.name ? [first.name] : [],
@@ -266,6 +455,69 @@ export function parseSoloResultsCsv(text) {
   if (!("name" in rows[0])) throw new Error("This does not look like a solo results CSV.");
 
   const first = rows[0];
+  if ("card_index" in first || "target_value" in first) {
+    const category = first.category || "Colors";
+    const optionValues = splitPipe(first.option_values);
+    const colors = buildColorsForCategory(category, rows).filter((item) => {
+      return optionValues.length === 0 || optionValues.includes(item.name);
+    });
+    const guessPolicy = first.guess_policy || "";
+    const deckPolicy = first.deck_policy || "";
+    const orderedRows = [...rows].sort((a, b) => (asNumber(a.card_index) ?? 0) - (asNumber(b.card_index) ?? 0));
+    const resolvedOptionCount = asNumber(first.option_count) ?? (optionValues.length || colors.length);
+
+    const trials = orderedRows
+      .map((row) => buildTrialRecord({
+        cardIndex: asNumber(row.card_index) ?? 0,
+        category,
+        optionCount: asNumber(row.option_count) ?? resolvedOptionCount,
+        targetValue: row.target_value,
+        guesses: splitPipe(row.guesses),
+        guessPolicy,
+        deckPolicy,
+        timeToFirstMs: asNumber(row.time_to_first_ms),
+        guessIntervalsMs: splitPipe(row.guess_intervals_ms).map(asNumber).filter((value) => value != null),
+        trialDurationMs: asNumber(row.trial_duration_ms),
+      }));
+
+    const analytics = buildSessionAnalytics({
+      trials,
+      optionValues: optionValues.length ? optionValues : colors.map((item) => item.name),
+      optionCount: resolvedOptionCount,
+      guessPolicy,
+    });
+
+    const results = trials.map((trial, index) => ({
+      target: trial.targetValue,
+      guesses: trial.guesses,
+      acc: Number.isFinite(trial.correctGuessIndex) ? accuracyScore(trial.correctGuessIndex) : 0,
+      prox: category === "Colors" && trial.firstGuess ? proximityScore(trial.firstGuess, trial.targetValue) : null,
+      pattern: category === "Colors" && trial.guesses.length > 0 ? patternLabel(trial.guesses, trial.targetValue) : null,
+      skipped: asBool(orderedRows[index]?.skipped),
+      timeToFirst: trial.timeToFirstMs,
+      guessDeltas: trial.guessIntervalsMs,
+    }));
+
+    return {
+      appMode: first.app_mode || "solo",
+      shareCode: first.share_code || null,
+      sessionId: first.session_id || "",
+      startedAt: first.started_at || null,
+      endedAt: first.ended_at || null,
+      name: first.name || "Imported Session",
+      category,
+      colors,
+      results,
+      guessPolicy,
+      deckPolicy,
+      optionValues: optionValues.length ? optionValues : colors.map((item) => item.name),
+      optionCount: resolvedOptionCount,
+      trials,
+      analytics,
+      importedFromCsv: true,
+    };
+  }
+
   const category = first.category || "Colors";
   const colors = buildColorsForCategory(category, rows);
   const baseMs = Date.now();
@@ -301,9 +553,14 @@ export function parseSoloResultsCsv(text) {
       };
     });
 
-  return {
-    name: first.name || "Imported Session",
-    category,
+    return {
+      appMode: first.app_mode || "solo",
+      shareCode: first.share_code || null,
+      sessionId: first.session_id || "",
+      startedAt: first.started_at || null,
+      endedAt: first.ended_at || null,
+      name: first.name || "Imported Session",
+      category,
     colors,
     results,
     importedFromCsv: true,
@@ -314,6 +571,115 @@ export function parseGroupResultsCsv(text) {
   const rows = parseCsv(text);
   if (!rows.length) throw new Error("CSV file is empty.");
   if (!("participant_name" in rows[0])) throw new Error("This does not look like a group results CSV.");
+
+  const first = rows[0];
+  if ("card_index" in first || "target_value" in first) {
+    const orderedRows = [...rows].sort((a, b) => {
+      const cardDiff = (asNumber(a.card_index) ?? 0) - (asNumber(b.card_index) ?? 0);
+      if (cardDiff !== 0) return cardDiff;
+      return String(a.participant_name).localeCompare(String(b.participant_name));
+    });
+
+    const category = first.category || "Colors";
+    const optionValues = splitPipe(first.option_values);
+    const colors = buildColorsForCategory(category, orderedRows).filter((item) => {
+      return optionValues.length === 0 || optionValues.includes(item.name);
+    });
+    const guessPolicy = first.guess_policy || "";
+    const deckPolicy = first.deck_policy || "";
+
+    const participantMap = new Map();
+    orderedRows.forEach((row, rowIndex) => {
+      const fallbackId = asNumber(row.participant_id) ?? rowIndex;
+      const participantName = row.participant_name || `Participant ${fallbackId + 1}`;
+      if (!participantMap.has(participantName)) {
+        participantMap.set(participantName, {
+          id: fallbackId,
+          name: participantName,
+          active: asBool(row.participant_active) || row.participant_active === "",
+        });
+      }
+    });
+
+    const participants = [...participantMap.values()].sort((a, b) => a.id - b.id);
+    const participantIdByName = Object.fromEntries(participants.map((participant) => [participant.name, participant.id]));
+    const slotByIndex = new Map();
+    const maxDurationBySlot = new Map();
+
+    orderedRows.forEach((row) => {
+      const slotIndex = Math.max(0, (asNumber(row.card_index) ?? 1) - 1);
+      if (!slotByIndex.has(slotIndex)) {
+        const fallback = colors.find((item) => item.name === row.target_value);
+        slotByIndex.set(slotIndex, fallback ?? { name: row.target_value, symbol: row.target_value?.[0] ?? "?", hex: "#8080a0" });
+      }
+
+      const durationMs = asNumber(row.trial_duration_ms);
+      if (durationMs != null) {
+        maxDurationBySlot.set(slotIndex, Math.max(durationMs, maxDurationBySlot.get(slotIndex) ?? 0));
+      }
+    });
+
+    const slots = [...slotByIndex.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, slot]) => slot);
+
+    let runningMs = Date.now();
+    const timers = slots.map((_, slotIndex) => {
+      const durationMs = maxDurationBySlot.get(slotIndex) ?? 0;
+      const startMs = runningMs;
+      const endMs = durationMs > 0 ? startMs + durationMs : startMs;
+      runningMs = endMs;
+      return { startMs, endMs };
+    });
+
+    const session = {};
+    orderedRows.forEach((row) => {
+      const pid = participantIdByName[row.participant_name];
+      const slotIndex = Math.max(0, (asNumber(row.card_index) ?? 1) - 1);
+      const slotStartMs = timers[slotIndex]?.startMs ?? Date.now();
+      const timeToFirst = asNumber(row.time_to_first_ms);
+      const deltas = splitPipe(row.guess_intervals_ms)
+        .map(asNumber)
+        .filter((value) => value != null);
+
+      let currentTs = slotStartMs;
+      const guesses = splitPipe(row.guesses).map((guess, guessIndex) => {
+        if (guessIndex === 0 && timeToFirst != null) {
+          currentTs += timeToFirst;
+        } else if (guessIndex > 0) {
+          currentTs += deltas[guessIndex - 1] ?? 0;
+        }
+        return { color: guess, ts: currentTs };
+      });
+
+      session[pid] = {
+        ...(session[pid] ?? {}),
+        [slotIndex]: {
+          guesses,
+          dnf: asBool(row.skipped),
+          slotStart: slotStartMs,
+        },
+      };
+    });
+
+    return {
+      appMode: first.app_mode || "group",
+      shareCode: first.share_code || null,
+      sessionId: first.session_id || "",
+      startedAt: first.started_at || null,
+      endedAt: first.ended_at || new Date(runningMs).toISOString(),
+      participants,
+      slots,
+      colors,
+      category,
+      guessPolicy,
+      deckPolicy,
+      session,
+      timers,
+      endedAt: new Date(runningMs).toISOString(),
+      importedFromCsv: true,
+    };
+  }
 
   const orderedRows = [...rows].sort((a, b) => {
     const cardDiff = (asNumber(a.card_position) ?? 0) - (asNumber(b.card_position) ?? 0);
@@ -396,13 +762,17 @@ export function parseGroupResultsCsv(text) {
   });
 
   return {
+    appMode: orderedRows[0].app_mode || "group",
+    shareCode: orderedRows[0].share_code || null,
+    sessionId: orderedRows[0].session_id || "",
+    startedAt: orderedRows[0].started_at || null,
     participants,
     slots,
     colors,
     category,
     session,
     timers,
-    endedAt: new Date(runningMs).toISOString(),
+    endedAt: orderedRows[0].ended_at || new Date(runningMs).toISOString(),
     importedFromCsv: true,
   };
 }

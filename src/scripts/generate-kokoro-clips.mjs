@@ -19,6 +19,9 @@ const clips = [
   ["say-it-again", "Say it again."],
   ["say-one-choice-only", "Say one choice only."],
   ["test-finished-press-space-to-go-to-results", "Test finished. Press space to go to results."],
+  ["test-finished-press-space-or-say-results-to-go-to-the-results-page", "Test finished. Press space or say results to go to the results page."],
+  ["results-go-to-results", "Results. Go to results."],
+  ["results", "Results."],
 
   ["first-card", "First card."],
   ["second-card", "Second card."],
@@ -101,7 +104,30 @@ const clips = [
   ["did-you-say-star", "Did you say Star?"],
   ["did-you-say-wavy", "Did you say Wavy?"],
   ["did-you-say-cross", "Did you say Cross?"],
+  ["different-the-answer-was-red", "Different. The answer was Red."],
+  ["different-the-answer-was-orange", "Different. The answer was Orange."],
+  ["different-the-answer-was-yellow", "Different. The answer was Yellow."],
+  ["different-the-answer-was-green", "Different. The answer was Green."],
+  ["different-the-answer-was-blue", "Different. The answer was Blue."],
+  ["different-the-answer-was-purple", "Different. The answer was Purple."],
+  ["different-the-answer-was-one", "Different. The answer was One."],
+  ["different-the-answer-was-two", "Different. The answer was Two."],
+  ["different-the-answer-was-three", "Different. The answer was Three."],
+  ["different-the-answer-was-four", "Different. The answer was Four."],
+  ["different-the-answer-was-five", "Different. The answer was Five."],
+  ["different-the-answer-was-six", "Different. The answer was Six."],
+  ["different-the-answer-was-circle", "Different. The answer was Circle."],
+  ["different-the-answer-was-oval", "Different. The answer was Oval."],
+  ["different-the-answer-was-square", "Different. The answer was Square."],
+  ["different-the-answer-was-rectangle", "Different. The answer was Rectangle."],
+  ["different-the-answer-was-triangle", "Different. The answer was Triangle."],
+  ["different-the-answer-was-diamond", "Different. The answer was Diamond."],
+  ["different-the-answer-was-star", "Different. The answer was Star."],
+  ["different-the-answer-was-wavy", "Different. The answer was Wavy."],
+  ["different-the-answer-was-cross", "Different. The answer was Cross."],
 ];
+
+const requestedSlugs = new Set(process.argv.slice(2));
 
 async function main() {
   await mkdir(outDir, { recursive: true });
@@ -112,11 +138,32 @@ async function main() {
     device: "cpu",
   });
 
-  console.log(`Writing ${clips.length} clips to ${outDir}`);
-  for (const [slug, text] of clips) {
+  const selectedClips = requestedSlugs.size > 0
+    ? clips.filter(([slug]) => requestedSlugs.has(slug))
+    : clips;
+
+  if (requestedSlugs.size > 0 && selectedClips.length !== requestedSlugs.size) {
+    const foundSlugs = new Set(selectedClips.map(([slug]) => slug));
+    const missingSlugs = [...requestedSlugs].filter((slug) => !foundSlugs.has(slug));
+    throw new Error(`Unknown clip slug(s): ${missingSlugs.join(", ")}`);
+  }
+
+  console.log(`Writing ${selectedClips.length} clips to ${outDir}`);
+  for (const [slug, text] of selectedClips) {
     console.log(`Generating ${slug}.wav`);
     const audio = await tts.generate(text, { voice: VOICE });
-    await audio.save(path.join(outDir, `${slug}.wav`));
+    const subfolder = slug.startsWith("different-the-answer-was-") ? "confirmations" : (
+      slug.startsWith("did-you-say-") || slug.startsWith("say-") ? "confirmations" : (
+        slug.endsWith("-card") ? "cards" : (
+          ["training-room", "test-started", "correct", "different", "skipped", "test-finished-press-space-to-go-to-results", "test-finished-press-space-or-say-results-to-go-to-the-results-page", "results-go-to-results", "results"].includes(slug)
+            ? "prompts"
+            : "items"
+        )
+      )
+    );
+    const targetDir = path.join(outDir, subfolder);
+    await mkdir(targetDir, { recursive: true });
+    await audio.save(path.join(targetDir, `${slug}.wav`));
   }
 
   console.log("Done.");

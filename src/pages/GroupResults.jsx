@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { CsvImportButton } from '../components/CsvImportButton.jsx';
 import { buildGroupParticipantCsv, buildGroupResultsCsv, buildResultsFilename, downloadCsv, parseGroupResultsCsv } from '../csv.js';
+import { buildGroupParticipantSummary, buildGroupRollupSummary } from '../groupAnalytics.js';
+import { GUESS_POLICIES } from '../sessionModel.js';
 import { fmt } from '../utils.js';
 
 function getParticipantCell(data, participantId, slotIndex) {
@@ -40,6 +42,10 @@ function getParticipantSummary(stats) {
     resolvedCount,
     skippedCount,
   };
+}
+
+function getGuessPolicy(viewData) {
+  return viewData.guessPolicy ?? GUESS_POLICIES.REPEAT_UNTIL_CORRECT;
 }
 
 function buildGraphSeries(data) {
@@ -128,6 +134,21 @@ export function GroupResults({ data, onRestart, onBack }) {
     setViewData(data);
   }, [data]);
 
+  const guessPolicy = getGuessPolicy(viewData);
+  const participantSummaries = viewData.participants.map((participant) => {
+    return buildGroupParticipantSummary({
+      participant,
+      session: viewData.session,
+      slots: viewData.slots,
+      activeOptions: viewData.colors,
+      category: viewData.category,
+      guessPolicy,
+      deckPolicy: viewData.deckPolicy,
+      timers: viewData.timers,
+    });
+  });
+  const rollupSummary = buildGroupRollupSummary(participantSummaries, guessPolicy);
+
   const exportAllCsv = () => {
     downloadCsv(buildResultsFilename("group", viewData.category), buildGroupResultsCsv(viewData));
   };
@@ -178,18 +199,22 @@ export function GroupResults({ data, onRestart, onBack }) {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {viewData.participants.map((participant) => {
-            const stats = getParticipantCardStats(viewData, participant);
-            const summary = getParticipantSummary(stats);
+          {participantSummaries.map((participantSummary) => {
+            const participant = participantSummary.participant;
+            const firstGuessPercent = participantSummary.analytics?.firstGuessAccuracy != null ? Math.round(participantSummary.analytics.firstGuessAccuracy * 100) : null;
+            const weightedPercent = participantSummary.analytics?.weightedScore != null ? Math.round(participantSummary.analytics.weightedScore * 100) : null;
             return (
               <div key={participant.id} style={{ background: "#181825", border: "1px solid #252530", borderRadius: "12px", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "18px", flexWrap: "wrap" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                   <div style={{ fontSize: "1rem", color: "#f0ece4", fontWeight: 600 }}>{participant.name}</div>
                   <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "0.72rem", color: "#9d97c4" }}>
-                    <span>Avg Accuracy {summary.avgAccuracy}%</span>
-                    <span>Resolved {summary.resolvedCount}/{viewData.slots.length}</span>
-                    <span>Skipped {summary.skippedCount}</span>
-                    {summary.avgTimeMs !== null && <span>Avg Time {fmt(summary.avgTimeMs)}</span>}
+                    {firstGuessPercent !== null && <span>First Guess {firstGuessPercent}%</span>}
+                    {guessPolicy !== GUESS_POLICIES.ONE_SHOT && weightedPercent !== null && <span>Weighted {weightedPercent}%</span>}
+                    {guessPolicy !== GUESS_POLICIES.ONE_SHOT && participantSummary.analytics?.averageGuessPosition != null && <span>Avg Pos {participantSummary.analytics.averageGuessPosition.toFixed(2)}</span>}
+                    {participantSummary.analytics?.zScore != null && <span>Z-Score {participantSummary.analytics.zScore.toFixed(2)}</span>}
+                    <span>Completed {participantSummary.completedCount}/{viewData.slots.length}</span>
+                    <span>Skipped {participantSummary.skippedCount}</span>
+                    {participantSummary.averageTimeMs !== null && <span>Avg Time {fmt(participantSummary.averageTimeMs)}</span>}
                   </div>
                 </div>
                 <button
@@ -208,6 +233,17 @@ export function GroupResults({ data, onRestart, onBack }) {
             {importError || importStatus}
           </div>
         )}
+
+        <div style={{ background: "#181825", border: "1px solid #252530", borderRadius: "12px", padding: "14px 16px", display: "flex", flexDirection: "column", gap: "6px" }}>
+          <div style={{ fontSize: "0.78rem", color: "#b9b4d8", letterSpacing: "0.12em", textTransform: "uppercase" }}>Group Rollup</div>
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "0.72rem", color: "#9d97c4" }}>
+            {rollupSummary.firstGuessAccuracy != null && <span>First Guess {Math.round(rollupSummary.firstGuessAccuracy * 100)}%</span>}
+            {guessPolicy !== GUESS_POLICIES.ONE_SHOT && rollupSummary.weightedScore != null && <span>Weighted {Math.round(rollupSummary.weightedScore * 100)}%</span>}
+            {guessPolicy !== GUESS_POLICIES.ONE_SHOT && rollupSummary.averageGuessPosition != null && <span>Avg Pos {rollupSummary.averageGuessPosition.toFixed(2)}</span>}
+            {rollupSummary.zScore != null && <span>Z-Score {rollupSummary.zScore.toFixed(2)}</span>}
+            {rollupSummary.averageTimeMs != null && <span>Avg Time {fmt(rollupSummary.averageTimeMs)}</span>}
+          </div>
+        </div>
 
         <AccuracyGraph data={viewData} />
       </div>

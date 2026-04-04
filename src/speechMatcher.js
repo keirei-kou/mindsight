@@ -2,24 +2,46 @@ const ALIASES = {
   Red: ["red", "bread", "read", "fred", "rad", "redd"],
   Orange: ["orange", "orrange", "oranj", "french", "origin"],
   Yellow: ["yellow", "yello", "hello", "mellow"],
-  Green: ["green", "greene", "grin", "grinn"],
+  Green: ["green", "greene", "grin", "grinn", "queen"],
   Blue: ["blue", "blew", "blu", "glue"],
   Purple: ["purple", "purpal", "purp", "people"],
-  One: ["one", "won", "wun", "juan"],
-  Two: ["two", "too", "to", "tu", "do"],
-  Three: ["three", "free", "tree", "threee"],
-  Four: ["four", "for", "fore", "or"],
-  Five: ["five", "fife", "hive"],
-  Six: ["six", "styx", "sticks", "dicks", "sicks", "sex", "sic"],
+  One: ["one", "won", "wun", "juan", "1", "11"],
+  Two: ["two", "too", "to", "tu", "do", "2", "22"],
+  Three: ["three", "free", "tree", "threee", "3", "33"],
+  Four: ["four", "for", "fore", "or", "4", "44"],
+  Five: ["five", "fife", "hive", "5", "55"],
+  Six: ["six", "styx", "sticks", "dicks", "sicks", "sex", "sic", "6", "66"],
   Circle: ["circle", "circles", "serkle"],
-  Oval: ["oval", "ovel", "over"],
+  Oval: ["oval", "ovel", "over", "mobile", "moval", "oh val"],
   Square: ["square", "squaree", "scare"],
   Rectangle: ["rectangle", "rectangular", "wreck tangle", "rect angle"],
   Triangle: ["triangle", "try angle", "tri angle"],
   Diamond: ["diamond", "diamon", "diamondd"],
   Star: ["star", "starr"],
   Wavy: ["wavy", "wavey", "wavyy"],
-  Cross: ["cross", "criss", "crisscross"],
+  Cross: ["cross", "criss", "crisscross", "brought", "ross", "crossed", "kross"],
+};
+
+const VOICE_COMMAND_ALIASES = {
+  trainingRoom: [
+    "training room",
+    "training",
+    "go to training room",
+    "back to training room",
+    "return to training room",
+  ],
+  beginTest: [
+    "test",
+    "begin test",
+    "start test",
+    "test started",
+  ],
+  results: [
+    "results",
+    "results go to results",
+    "show results",
+    "go to results",
+  ],
 };
 
 function normalize(text) {
@@ -79,8 +101,62 @@ function buildCandidates(raw) {
   return [...candidates].filter(Boolean);
 }
 
+function commandAliasAppearsInTranscript(raw, alias) {
+  if (!raw || !alias) {
+    return false;
+  }
+
+  if (raw === alias) {
+    return true;
+  }
+
+  const rawTokens = raw.split(" ").filter(Boolean);
+  const aliasTokens = alias.split(" ").filter(Boolean);
+
+  if (aliasTokens.length === 0 || aliasTokens.length > rawTokens.length) {
+    return false;
+  }
+
+  for (let start = 0; start <= rawTokens.length - aliasTokens.length; start++) {
+    let matches = true;
+
+    for (let offset = 0; offset < aliasTokens.length; offset++) {
+      if (rawTokens[start + offset] !== aliasTokens[offset]) {
+        matches = false;
+        break;
+      }
+    }
+
+    if (matches) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function isStrongExactCandidate(candidate, canonical) {
   return candidate === canonical || candidate.length >= 3;
+}
+
+function findContainedAliasMatch(candidates, itemName, aliases) {
+  for (const candidate of candidates) {
+    for (const alias of aliases) {
+      if (candidate.length <= alias.length) {
+        continue;
+      }
+
+      if (candidate.includes(alias)) {
+        return {
+          raw: candidate,
+          match: itemName,
+          score: Math.max(0.9, alias.length / candidate.length),
+        };
+      }
+    }
+  }
+
+  return null;
 }
 
 export function matchTranscriptToItems(transcript, items) {
@@ -89,11 +165,17 @@ export function matchTranscriptToItems(transcript, items) {
 
   const candidates = buildCandidates(raw);
   const exactMatches = new Set();
+  let exactCanonicalMatch = null;
   let best = { raw, match: null, score: 0 };
 
   for (const item of items) {
     const canonical = normalize(item.name);
     const aliases = [canonical, ...(ALIASES[item.name] ?? [])].map(normalize);
+    const containedMatch = findContainedAliasMatch(candidates, item.name, aliases);
+
+    if (containedMatch && containedMatch.score > best.score) {
+      best = containedMatch;
+    }
 
     for (const candidate of candidates) {
       if (aliases.includes(candidate)) {
@@ -104,7 +186,7 @@ export function matchTranscriptToItems(transcript, items) {
           return { raw, match: null, score: 0, ambiguous: true };
         }
         if (candidate === canonical) {
-          return { raw, match: item.name, score: 1 };
+          exactCanonicalMatch = item.name;
         }
       }
 
@@ -123,6 +205,49 @@ export function matchTranscriptToItems(transcript, items) {
 
   if (exactMatches.size > 1) {
     return { raw, match: null, score: 0, ambiguous: true };
+  }
+
+  if (exactCanonicalMatch) {
+    return { raw, match: exactCanonicalMatch, score: 1 };
+  }
+
+  return best;
+}
+
+export function matchTranscriptToCommand(transcript) {
+  const raw = normalize(transcript);
+  if (!raw) {
+    return { raw, command: null, score: 0 };
+  }
+
+  const candidates = buildCandidates(raw);
+  let best = { raw, command: null, score: 0 };
+
+  for (const [command, aliases] of Object.entries(VOICE_COMMAND_ALIASES)) {
+    const normalizedAliases = aliases.map(normalize);
+
+    for (const alias of normalizedAliases) {
+      if (commandAliasAppearsInTranscript(raw, alias)) {
+        return { raw, command, score: 1 };
+      }
+    }
+
+    for (const candidate of candidates) {
+      if (normalizedAliases.includes(candidate)) {
+        return { raw, command, score: 1 };
+      }
+
+      for (const alias of normalizedAliases) {
+        const score = similarity(candidate, alias);
+        if (score > best.score) {
+          best = { raw, command, score };
+        }
+      }
+    }
+  }
+
+  if (best.score < 0.88) {
+    return { raw, command: null, score: best.score };
   }
 
   return best;
