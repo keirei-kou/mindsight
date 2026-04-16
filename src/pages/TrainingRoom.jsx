@@ -7,7 +7,12 @@ import { isSpeechRecognitionSupported, startContinuousListening } from '../speec
 import { matchTranscriptToCommand, matchTranscriptToItems } from '../speechMatcher.js';
 
 const nowMs = () => Date.now();
-const CARD_ORDINALS = ["First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth","Eleventh","Twelfth","Thirteenth","Fourteenth","Fifteenth","Sixteenth","Seventeenth","Eighteenth","Nineteenth","Twentieth"];
+const CARD_ORDINALS = [
+  "First","Second","Third","Fourth","Fifth","Sixth","Seventh","Eighth","Ninth","Tenth",
+  "Eleventh","Twelfth","Thirteenth","Fourteenth","Fifteenth","Sixteenth","Seventeenth","Eighteenth","Nineteenth","Twentieth",
+  "Twenty first","Twenty second","Twenty third","Twenty fourth","Twenty fifth","Twenty sixth","Twenty seventh","Twenty eighth","Twenty ninth","Thirtieth",
+  "Thirty first","Thirty second","Thirty third","Thirty fourth","Thirty fifth","Thirty sixth"
+];
 const FIRST_TEST_CARD_ANNOUNCE_DELAY_MS = 1800;
 const CARD_ANNOUNCE_DELAY_MS = 300;
 const RESULTS_ANNOUNCE_DELAY_MS = 1400;
@@ -23,7 +28,7 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
   const [done, setDone]       = useState(false);
   const [micState, setMicState] = useState("off");
   const [heardPhrase, setHeardPhrase] = useState("");
-  const [heardMatch, setHeardMatch] = useState("");
+  const [heardMatchInfo, setHeardMatchInfo] = useState(null);
   const [pendingConfirmation, setPendingConfirmation] = useState(null);
   const advanceTimeoutRef     = useRef(null);
   const recognitionRef        = useRef(null);
@@ -90,6 +95,11 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
     return () => window.clearTimeout(advanceTimeoutRef.current);
   }, []);
 
+  useEffect(() => {
+    document.body.classList.add("mindsight-fullbleed");
+    return () => document.body.classList.remove("mindsight-fullbleed");
+  }, []);
+
   function stopListening() {
     recognitionRef.current?.stop?.();
     recognitionRef.current = null;
@@ -99,7 +109,7 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
     pendingConfirmationRef.current = null;
     setPendingConfirmation(null);
     setHeardPhrase("");
-    setHeardMatch("");
+    setHeardMatchInfo(null);
     setGuesses([]);
     setDone(false);
     setSlotIdx(0);
@@ -184,7 +194,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
     pendingConfirmationRef.current = null;
     setPendingConfirmation(null);
     setHeardPhrase("");
-    setHeardMatch("");
+    setHeardMatchInfo(null);
 
     if (options.feedbackLine) {
       speak(options.feedbackLine);
@@ -253,7 +263,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
           pendingConfirmationRef.current = null;
           setPendingConfirmation(null);
           setHeardPhrase("");
-          setHeardMatch("");
+          setHeardMatchInfo(null);
           setPhase("training");
           setGuesses([]);
           setSlotIdx(0);
@@ -312,11 +322,11 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
 
         const match = matchTranscriptToItems(raw, displayItemsRef.current);
         if (match.ambiguous) {
-          setHeardMatch("Ambiguous");
+          setHeardMatchInfo({ status: "ambiguous" });
         } else if (match.match) {
-          setHeardMatch(`${match.match} (${Math.round(match.score * 100)}%)`);
+          setHeardMatchInfo({ status: "match", name: match.match, score: match.score });
         } else {
-          setHeardMatch("No close match");
+          setHeardMatchInfo({ status: "none", score: match.score });
         }
 
         if (match.ambiguous) {
@@ -339,6 +349,11 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
           }
 
           submitGuess(match.match);
+          return;
+        }
+
+        if (phase === "training" && displayItemsRef.current[itemIdxRef.current]?.name === match.match) {
+          focusTrainingItem(match.match);
           return;
         }
 
@@ -419,16 +434,29 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
   const bgItem = phase === "test" ? targetItem : (displayItems[itemIdx] ?? items[0]);
   const bg = (isNumbers || isShapes) ? "#1a1a2a" : (bgItem?.hex ?? "#111118");
   const isOval = bgItem?.name === "Oval";
+  const stageBackground = isColors
+    ? (bgItem?.hex ?? "#111118")
+    : `linear-gradient(90deg, ${bgItem?.hex ?? "#1a1a2a"}66 0%, ${bgItem?.hex ?? "#1a1a2a"}2e 18%, #1a1a2a 50%, ${bgItem?.hex ?? "#1a1a2a"}2e 82%, ${bgItem?.hex ?? "#1a1a2a"}66 100%)`;
   const longestOptionNameLength = displayItems.reduce((maxLength, item) => {
     return Math.max(maxLength, item.name.length);
   }, 0);
   const guessTrayMinWidth = `${Math.max(12, longestOptionNameLength + 5)}ch`;
-  const showVoiceDebug = Boolean(heardPhrase || heardMatch || pendingConfirmation);
+  const showVoiceDebug = Boolean(heardPhrase || heardMatchInfo || pendingConfirmation);
   const micStatusLabel = micState === "retrying" ? "listening" : micState;
   const micStatusColor = micStatusLabel === "listening" ? "#f472b6" : "rgba(255,255,255,0.45)";
+  const micIsListening = micStatusLabel === "listening";
+  const shownMatchName = pendingConfirmation || heardMatchInfo?.name || null;
+  const shownMatchItem = shownMatchName ? lookup[shownMatchName] : null;
+  const shownMatchPercent = heardMatchInfo?.score != null ? Math.round(heardMatchInfo.score * 100) : null;
+  const matchPercentColor =
+    shownMatchPercent == null ? "rgba(255,255,255,0.4)"
+      : shownMatchPercent >= 95 ? "#22c55e"
+      : shownMatchPercent >= 80 ? "#eab308"
+      : shownMatchPercent >= 65 ? "#f97316"
+      : "#ef4444";
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: "'Georgia', serif", background: bg, transition: "background 0.25s" }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: "'Georgia', serif", background: bg, transition: "background 0.25s", overflowX: "hidden" }}>
       <div style={{ background: "#141420", padding: "14px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #1c1c28" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
           <div style={{ fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "1.2rem", fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", background: "linear-gradient(120deg, #93c5fd 0%, #a78bfa 40%, #e879f9 70%, #f9a8d4 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
@@ -439,26 +467,28 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
         <button onClick={onBack} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "8px 20px", cursor: "pointer", fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", boxShadow: "0 2px 16px #7c3aed55" }}>← Setup</button>
       </div>
 
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px" }}>
-        {isNumbers && bgItem && (() => {
-          const numMap = {"One":"1","Two":"2","Three":"3","Four":"4","Five":"5","Six":"6"};
-          return (
+      <div style={{ flex: 1, display: "flex", alignItems: "stretch", justifyContent: "center", width: "100%" }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", width: "100%", background: stageBackground, transition: "background 0.25s", padding: "32px 0", boxSizing: "border-box" }}>
+          {isNumbers && bgItem && (() => {
+            const numMap = {"One":"1","Two":"2","Three":"3","Four":"4","Five":"5","Six":"6"};
+            return (
+              <>
+                <div style={{ fontSize: "5rem", fontWeight: 700, color: "white", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.2em", textTransform: "uppercase", textShadow: `0 0 30px ${bgItem.hex}88` }}>{bgItem.name}</div>
+                <div style={{ fontSize: "16rem", lineHeight: 0.9, color: bgItem.hex, filter: `drop-shadow(0 0 40px ${bgItem.hex}88)` }}>{bgItem.symbol}</div>
+                <div style={{ fontSize: "8rem", fontWeight: 900, color: "white", fontFamily: "Cormorant Garamond, Georgia, serif", lineHeight: 1, textShadow: `0 0 50px ${bgItem.hex}` }}>{numMap[bgItem.name]}</div>
+              </>
+            );
+          })()}
+          {isShapes && bgItem && (
             <>
-              <div style={{ fontSize: "5rem", fontWeight: 700, color: "white", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.2em", textTransform: "uppercase", textShadow: `0 0 30px ${bgItem.hex}88` }}>{bgItem.name}</div>
-              <div style={{ fontSize: "16rem", lineHeight: 0.9, color: bgItem.hex, filter: `drop-shadow(0 0 40px ${bgItem.hex}88)` }}>{bgItem.symbol}</div>
-              <div style={{ fontSize: "8rem", fontWeight: 900, color: "white", fontFamily: "Cormorant Garamond, Georgia, serif", lineHeight: 1, textShadow: `0 0 50px ${bgItem.hex}` }}>{numMap[bgItem.name]}</div>
+              {/* Fixed-height wrapper so the word top edge stays aligned across shapes. */}
+              <div style={{ height: "20.25rem", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+                <div style={{ fontSize: isOval ? "13.5rem" : "22.5rem", lineHeight: 0.9, color: bgItem.hex, filter: `drop-shadow(0 0 50px ${bgItem.hex}aa)` }}>{bgItem.symbol}</div>
+              </div>
+              <div style={{ fontSize: "4.2rem", fontWeight: 700, color: "white", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.2em", textTransform: "uppercase", textShadow: `0 0 30px ${bgItem.hex}`, marginTop: "110px" }}>{bgItem.name}</div>
             </>
-          );
-        })()}
-        {isShapes && bgItem && (
-          <>
-            {/* Fixed-height wrapper so the word top edge stays aligned across shapes. */}
-            <div style={{ height: "20.25rem", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-              <div style={{ fontSize: isOval ? "13.5rem" : "22.5rem", lineHeight: 0.9, color: bgItem.hex, filter: `drop-shadow(0 0 50px ${bgItem.hex}aa)` }}>{bgItem.symbol}</div>
-            </div>
-            <div style={{ fontSize: "4.2rem", fontWeight: 700, color: "white", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.2em", textTransform: "uppercase", textShadow: `0 0 30px ${bgItem.hex}`, marginTop: "110px" }}>{bgItem.name}</div>
-          </>
-        )}
+          )}
+        </div>
       </div>
 
       <div style={{ background: "#141420", padding: "16px 24px 18px", borderTop: "1px solid #1c1c28", display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -489,20 +519,6 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
           </div>
         </div>}
 
-        {phase === "training" && <div style={{ display: "flex", justifyContent: "center" }}>
-          <div style={{ minHeight: "40px", maxWidth: "100%", minWidth: guessTrayMinWidth, padding: "8px 12px", borderRadius: "10px", background: "#1f1f2d", border: "1px solid #303048", boxSizing: "border-box", display: "flex", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: "10px" }}>
-            {showVoiceDebug ? (
-              <>
-                {heardPhrase && <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.72)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Heard Input: {heardPhrase}</span>}
-                {heardMatch && <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.72)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Matched Option: {heardMatch}</span>}
-                {pendingConfirmation && <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.72)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Confirming: {pendingConfirmation}</span>}
-              </>
-            ) : (
-              <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Voice Debug Idle</span>
-            )}
-          </div>
-        </div>}
-
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "center" }}>
           {displayItems.map((c, i) => {
             const isActive = i === itemIdx;
@@ -529,14 +545,32 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
           </div>
 
           <div style={{ display: "flex", justifyContent: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#252535", border: "1px solid #3a3a55", borderRadius: "8px", padding: "8px 16px", fontFamily: "inherit" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", color: micStatusColor }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", background: "#252535", border: "1px solid #3a3a55", borderRadius: "10px", padding: "10px 16px", fontFamily: "inherit", minWidth: "260px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", color: micStatusColor, width: "28px", height: "28px", borderRadius: "999px", background: micIsListening ? "#f472b61a" : "transparent", boxShadow: micIsListening ? "0 0 0 2px #f472b633, 0 0 18px #f472b644" : "none", animation: micIsListening ? "mindsightMicPulse 1.2s ease-in-out infinite" : "none", flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 1 0 10 0Z"/>
                 </svg>
               </span>
-              <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.1em", textTransform: "uppercase" }}>Mic</span>
-              <span style={{ fontSize: "0.82rem", color: "#ffffff", fontWeight: 600 }}>{micStatusLabel}</span>
+              <div
+                style={{
+                  minWidth: 0,
+                  flex: 1,
+                  background: "#1f1f2d",
+                  border: "1px solid #3a3a55",
+                  borderRadius: "10px",
+                  padding: "8px 10px",
+                  color: heardPhrase ? "#f0ece4" : "rgba(255,255,255,0.28)",
+                  fontSize: "0.72rem",
+                  lineHeight: 1.2,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+                }}
+              >
+                {heardPhrase || "..."}
+              </div>
               {phase === "test" && (
                 <>
                   <span style={{ width: "2px", height: "18px", background: "rgba(255,255,255,0.4)", margin: "0 4px" }} />
@@ -544,6 +578,29 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
                   <span style={{ fontSize: "0.9rem", color: "#ffffff", fontWeight: 600 }}>{slotIdx + 1} of {slots.length}</span>
                 </>
               )}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", minHeight: "20px" }}>
+                {shownMatchItem ? (
+                  <>
+                    <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                      {pendingConfirmation ? "Is it this" : "Match"}
+                    </span>
+                    <span style={{ fontSize: shownMatchName === "Oval" ? "0.82rem" : "1rem", lineHeight: 1, color: "#f5f7fb", filter: `drop-shadow(0 0 6px ${shownMatchItem.hex}55)` }}>
+                      {shownMatchItem.symbol}
+                    </span>
+                    {shownMatchPercent != null && (
+                      <span style={{ fontSize: "0.82rem", fontWeight: 800, color: matchPercentColor, letterSpacing: "0.02em" }}>
+                        {shownMatchPercent}%
+                      </span>
+                    )}
+                  </>
+                ) : heardMatchInfo?.status === "ambiguous" ? (
+                  <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.55)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Ambiguous</span>
+                ) : (
+                  <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.28)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Ready</span>
+                )}
+              </div>
             </div>
           </div>
 
