@@ -8,6 +8,7 @@ const staticAudioCache = new Map();
 const STATIC_CLIP_MAP = {
   "training room": "prompts/training-room.wav",
   "test started": "prompts/test-started.wav",
+  "test resumed": "prompts/test-resumed.wav",
   "correct": "prompts/correct.wav",
   "different": "prompts/different.wav",
   "skipped": "prompts/skipped.wav",
@@ -127,9 +128,13 @@ function normalizeText(text) {
 }
 
 function getStaticClipUrl(text) {
+  return getStaticClipUrlForVoice(text, selectedVoice);
+}
+
+function getStaticClipUrlForVoice(text, voice) {
   const fileName = STATIC_CLIP_MAP[normalizeText(text)];
   if (!fileName) return null;
-  return `${import.meta.env.BASE_URL}audio/${selectedVoice}/${fileName}`;
+  return `${import.meta.env.BASE_URL}audio/${voice}/${fileName}`;
 }
 
 function getCachedStaticAudio(url) {
@@ -198,7 +203,12 @@ export function speak(text, options = {}) {
   if (typeof window === "undefined") return;
 
   stopSpeaking();
-  const staticClipUrl = getStaticClipUrl(text);
+  const voiceOverride = typeof options.voice === "string" && options.voice.trim()
+    ? options.voice.trim()
+    : null;
+  const staticClipUrl = voiceOverride
+    ? getStaticClipUrlForVoice(text, voiceOverride)
+    : getStaticClipUrl(text);
   if (staticClipUrl) {
     const audio = getCachedStaticAudio(staticClipUrl);
     audio.currentTime = 0;

@@ -13,7 +13,9 @@ import { clearGoogleAuthSession, getEmptyGoogleAuthState, persistGoogleAuthSessi
 import { clearGoogleSheetSession, getEmptyGoogleSheetState, persistGoogleSheetSession, restoreGoogleSheetSession } from './googleSheetSession.js';
 import { appendSoloTrials, createMindsightSpreadsheet, readTrialsSheetRows } from './googleSheets.js';
 import { pickExistingSpreadsheet } from './googlePicker.js';
-import { buildLatestSoloSessionFromGoogleSheetRows } from './googleSheetHistory.js';
+import { buildSoloHistoryFromGoogleSheetRows } from './googleSheetHistory.js';
+import { clearInterruptedSession, restoreInterruptedSession } from './sessionRecovery.js';
+import { buildSoloSessionPayload } from './soloSessionPayload.js';
 
 export default function App() {
   const [isDisplayMode, setIsDisplayMode] = useState(() =>
@@ -25,6 +27,7 @@ export default function App() {
   const [googleSheet, setGoogleSheet] = useState(() => restoreGoogleSheetSession());
   const [googleSheetWriteStatus, setGoogleSheetWriteStatus] = useState("");
   const [googleSheetReadStatus, setGoogleSheetReadStatus] = useState("");
+  const [interruptedSession, setInterruptedSession] = useState(() => restoreInterruptedSession());
 
   useEffect(() => {
     const syncDisplayMode = () => setIsDisplayMode(window.location.hash.startsWith("#display"));
@@ -40,6 +43,10 @@ export default function App() {
   useEffect(() => {
     persistGoogleSheetSession(googleSheet);
   }, [googleSheet]);
+
+  useEffect(() => {
+    setInterruptedSession(restoreInterruptedSession());
+  }, [screen]);
 
   const start          = (data) => { setData(data); setScreen(data.appMode === "group" ? "groupInstructions" : "micsetup"); };
   const goTraining     = () => setScreen("training");
@@ -175,6 +182,38 @@ export default function App() {
     setData({ soloResults });
     setScreen("soloResults");
   };
+
+  const openInterruptedSession = () => {
+    const snapshot = restoreInterruptedSession();
+    if (!snapshot) {
+      setInterruptedSession(null);
+      return;
+    }
+
+    const payload = buildSoloSessionPayload({
+      appMode: snapshot.appMode,
+      shareCode: snapshot.shareCode,
+      sessionId: snapshot.sessionId,
+      startedAt: snapshot.startedAt,
+      endedAt: snapshot.endedAt,
+      name: snapshot.name,
+      category: snapshot.category,
+      activeOptions: snapshot.activeOptions,
+      guessPolicy: snapshot.guessPolicy,
+      deckPolicy: snapshot.deckPolicy,
+      completedResults: snapshot.completedResults ?? [],
+    });
+
+    clearInterruptedSession();
+    setInterruptedSession(null);
+    setData({ soloResults: { ...payload, interruptedFromRecovery: true } });
+    setScreen("soloResults");
+  };
+
+  const dismissInterruptedSession = () => {
+    clearInterruptedSession();
+    setInterruptedSession(null);
+  };
   const openGoogleResults = async () => {
     if (!googleAuth.accessToken || googleAuth.status !== "connected") {
       setGoogleSheetReadStatus("Connect Google before opening Google results.");
@@ -188,7 +227,8 @@ export default function App() {
 
     try {
       const rows = await readTrialsSheetRows(googleAuth.accessToken, googleSheet.spreadsheetId);
-      const latestSession = buildLatestSoloSessionFromGoogleSheetRows(rows);
+      const sessions = buildSoloHistoryFromGoogleSheetRows(rows);
+      const latestSession = sessions.length > 0 ? sessions[sessions.length - 1] : null;
 
       if (!latestSession) {
         setGoogleSheetReadStatus("No solo or shared trial history was found in the selected Google sheet.");
@@ -196,7 +236,7 @@ export default function App() {
       }
 
       setGoogleSheetReadStatus("");
-      setData({ soloResults: latestSession });
+      setData({ soloResults: { ...latestSession, googleHistory: sessions, openedFromGoogleResults: true } });
       setScreen("soloResults");
     } catch (error) {
       setGoogleSheetReadStatus(error instanceof Error ? error.message : "Unable to open Google Sheets results.");
@@ -209,7 +249,7 @@ export default function App() {
     return <GroupInstructions category={sessionData.category} activeItems={sessionData.colors} onContinue={goSession} onBack={end} />;
   if (screen === "micsetup"         && sessionData) return <Instructions category={sessionData.category} activeItems={sessionData.colors} onContinue={goTraining} onBack={end} />;
   if (screen === "training"    && sessionData) return <TrainingRoom items={sessionData.colors} slots={sessionData.slots} category={sessionData.category} name={sessionData.name} appMode={sessionData.appMode} shareCode={sessionData.shareCode} guessPolicy={sessionData.guessPolicy} deckPolicy={sessionData.deckPolicy} onBack={end} onInstructions={goInstructions} onFinish={goResults} />;
-  if (screen === "soloResults" && sessionData?.soloResults) return <SoloResults data={sessionData.soloResults} onRestart={end} onRedo={() => setScreen("training")} googleAuth={googleAuth} googleSheet={googleSheet} />;
+  if (screen === "soloResults" && sessionData?.soloResults) return <SoloResults data={sessionData.soloResults} onRestart={end} googleAuth={googleAuth} googleSheet={googleSheet} />;
   if (screen === "groupResults" && sessionData?.groupResults) return <GroupResults data={sessionData.groupResults} onRestart={end} onBack={() => setScreen("session")} />;
-  return <Setup onStart={start} onImportResults={importResults} googleAuth={googleAuth} onConnectGoogle={connectGoogle} onDisconnectGoogle={disconnectGoogle} googleSheet={googleSheet} onCreateGoogleSheet={createGoogleSheet} onPickGoogleSheet={pickGoogleSheet} onOpenGoogleResults={openGoogleResults} googleSheetWriteStatus={googleSheetWriteStatus} googleSheetReadStatus={googleSheetReadStatus} />;
+  return <Setup onStart={start} onImportResults={importResults} googleAuth={googleAuth} onConnectGoogle={connectGoogle} onDisconnectGoogle={disconnectGoogle} googleSheet={googleSheet} onCreateGoogleSheet={createGoogleSheet} onPickGoogleSheet={pickGoogleSheet} onOpenGoogleResults={openGoogleResults} googleSheetWriteStatus={googleSheetWriteStatus} googleSheetReadStatus={googleSheetReadStatus} interruptedSession={interruptedSession} onOpenInterruptedSession={openInterruptedSession} onDismissInterruptedSession={dismissInterruptedSession} />;
 }

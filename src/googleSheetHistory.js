@@ -44,6 +44,7 @@ function buildSessionFromTrialRows(sessionRows) {
   const optionCount = asNumber(firstRow.option_count) ?? (optionValues.length || colors.length);
   const guessPolicy = firstRow.guess_policy || "";
   const deckPolicy = firstRow.deck_policy || "";
+  const runId = firstRow.run_id || null;
   const orderedRows = [...sessionRows].sort((a, b) => (asNumber(a.card_index) ?? 0) - (asNumber(b.card_index) ?? 0));
 
   const trials = orderedRows.map((row) => buildTrialRecord({
@@ -81,6 +82,7 @@ function buildSessionFromTrialRows(sessionRows) {
     appMode: firstRow.app_mode || "solo",
     shareCode: firstRow.share_code || null,
     sessionId: firstRow.session_id || "",
+    runId,
     startedAt: firstRow.started_at || null,
     endedAt: firstRow.ended_at || null,
     name: firstRow.name || "Imported Session",
@@ -120,7 +122,7 @@ export function buildSoloHistoryFromGoogleSheetRows(rows, participantName) {
   const sessionRowsById = new Map();
 
   filteredRows.forEach((row) => {
-    const sessionId = row.session_id;
+    const sessionId = `${row.name}::${row.session_id}`;
     if (!sessionRowsById.has(sessionId)) {
       sessionRowsById.set(sessionId, []);
     }

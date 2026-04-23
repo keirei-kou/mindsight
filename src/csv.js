@@ -25,6 +25,11 @@ export function buildResultsFilename(name, category, timestamp = createCsvTimest
   return `${safeName}-${safeCategory}-${timestamp}-results.csv`;
 }
 
+export function buildUserHistoryFilename(name, timestamp = createCsvTimestamp()) {
+  const safeName = slugifyCsvPart(name, "participant");
+  return `${safeName}-google-history-${timestamp}-results.csv`;
+}
+
 export function downloadCsv(filename, csvText) {
   const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -47,6 +52,7 @@ function joinPipe(values) {
 
 export const SOLO_TRIAL_HEADERS = [
   "session_id",
+  "run_id",
   "app_mode",
   "share_code",
   "started_at",
@@ -86,6 +92,7 @@ export function buildSoloTrialRows(data) {
     appMode = "",
     shareCode = "",
     sessionId = new Date().toISOString().replace(/[:.]/g, "-"),
+    runId = "",
     startedAt = null,
     endedAt = null,
     name,
@@ -139,6 +146,7 @@ export function buildSoloTrialRows(data) {
 
     return [
       sessionId,
+      runId ?? "",
       appMode,
       shareCode,
       startedAt ?? "",
@@ -177,6 +185,15 @@ export function buildSoloTrialRows(data) {
 
 export function buildSoloResultsCsv(data) {
   const rows = buildSoloTrialRows(data).map((row) => row.map(toCsvCell).join(","));
+
+  return [SOLO_TRIAL_HEADERS.join(","), ...rows].join("\n");
+}
+
+export function buildSoloHistoryResultsCsv(sessions) {
+  const normalizedSessions = Array.isArray(sessions) ? sessions : [];
+  const rows = normalizedSessions
+    .flatMap((session) => buildSoloTrialRows(session))
+    .map((row) => row.map(toCsvCell).join(","));
 
   return [SOLO_TRIAL_HEADERS.join(","), ...rows].join("\n");
 }

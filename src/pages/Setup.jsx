@@ -13,7 +13,7 @@ import { SlotPicker } from '../components/SlotPicker.jsx';
 import { isSpeechRecognitionSupported, startContinuousListening } from '../speechRecognition.js';
 import { matchTranscriptToItems } from '../speechMatcher.js';
 
-export function Setup({ onStart, onImportResults, googleAuth, onConnectGoogle, onDisconnectGoogle, googleSheet, onCreateGoogleSheet, onPickGoogleSheet, onOpenGoogleResults, googleSheetWriteStatus, googleSheetReadStatus }) {
+export function Setup({ onStart, onImportResults, googleAuth, onConnectGoogle, onDisconnectGoogle, googleSheet, onCreateGoogleSheet, onPickGoogleSheet, onOpenGoogleResults, googleSheetWriteStatus, googleSheetReadStatus, interruptedSession, onOpenInterruptedSession, onDismissInterruptedSession }) {
   const [utilitySource, setUtilitySource] = useState("google");
   const [appMode, setAppMode]   = useState(SESSION_MODES.SOLO);
   const [guessPolicy, setGuessPolicy] = useState(GUESS_POLICIES.REPEAT_UNTIL_CORRECT);
@@ -654,6 +654,38 @@ export function Setup({ onStart, onImportResults, googleAuth, onConnectGoogle, o
             {utilitySource === "csv" && csvStatusMessage && (
               <div style={{ width: "100%", fontSize: "0.68rem", color: importError ? "#fca5a5" : "#a7f3d0", letterSpacing: "0.04em", lineHeight: 1.6, textAlign: "center" }}>
                 {csvStatusMessage}
+              </div>
+            )}
+
+            {interruptedSession && (
+              <div style={{ width: "100%", background: "#111118", border: "1px solid #f59e0b55", borderRadius: "12px", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "baseline" }}>
+                  <div style={{ fontSize: "0.72rem", color: "#fbbf24", letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700 }}>
+                    Interrupted Test Found
+                  </div>
+                  <div style={{ fontSize: "0.68rem", color: "#b9b4d8", letterSpacing: "0.06em" }}>
+                    {interruptedSession?.endedAt ? `Ended ${new Date(interruptedSession.endedAt).toLocaleString("en-US")}` : "Ended recently"}
+                  </div>
+                </div>
+                <div style={{ fontSize: "0.72rem", color: "#dbeafe", lineHeight: 1.6 }}>
+                  {interruptedSession?.name ? `${interruptedSession.name} · ` : ""}
+                  {interruptedSession?.category ? `${interruptedSession.category} · ` : ""}
+                  {Array.isArray(interruptedSession?.completedResults) ? `${interruptedSession.completedResults.length} cards recorded` : ""}
+                </div>
+                <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", flexWrap: "wrap" }}>
+                  <button
+                    onClick={onDismissInterruptedSession}
+                    style={{ background: "transparent", border: "1px solid #252530", borderRadius: "10px", color: "#9090bb", padding: "10px 14px", fontSize: "0.76rem", fontFamily: "\"Segoe UI\", Arial, sans-serif", letterSpacing: "0.05em", cursor: "pointer" }}
+                  >
+                    Dismiss
+                  </button>
+                  <button
+                    onClick={onOpenInterruptedSession}
+                    style={{ background: "linear-gradient(135deg, #7c3aed 0%, #db2777 100%)", border: "none", borderRadius: "10px", color: "white", padding: "10px 16px", fontSize: "0.76rem", fontFamily: "\"Segoe UI\", Arial, sans-serif", letterSpacing: "0.05em", cursor: "pointer", boxShadow: "0 10px 24px rgba(124, 58, 237, 0.18)" }}
+                  >
+                    Open Results
+                  </button>
+                </div>
               </div>
             )}
           </div>

@@ -10,6 +10,15 @@
 - Added centralized deck generation in [deck.js](./deck.js)
 - Added centralized analytics math in [analytics.js](./analytics.js)
 - Added solo payload shaping in [soloSessionPayload.js](./soloSessionPayload.js)
+- Updated one-shot metric storage/export rules so only `firstGuessAccuracy` + `zScore` are computed/stored; `averageGuessPosition`, `guessPositionStdDev`, and `weightedScore` are left blank/null to avoid misleading artifacts
+- Updated Google Sheets "Open Results" flow to load full history first (overview), with per-session drilldown and per-user export support
+- Added Google Sheets overview rollup to show the 5 key metrics across all sessions for the selected user (not only per-session deep dive)
+- Added Training Hotline overlay during test phase (Ctrl/voice toggle, guessing disabled) to avoid accidental resets and preserve blindfolded usability
+- Updated Instructions page with a speaker-button popup listing voice commands/phrases (main instructions text stays focused on keys/buttons and behavior)
+- Added interrupted-session recovery (localStorage snapshot) so exiting mid-test (back/refresh/close) stamps an `endedAt` and can be reopened from Setup
+- Switched training hotline voice from `am_santa` to `bm_lewis` and generated Kokoro audio clips under `public/audio/bm_lewis`
+- Updated the Kokoro clip generator to support “packs” (e.g. `--pack hotline`) so we can generate only the minimal set needed without waiting for the full 111 clips
+- Fixed graph edge-case where per-trial weighted score could dip below 0% (clamp) causing the line to drop below the x-axis
 - Updated [pages/Setup.jsx](./pages/Setup.jsx) to use:
   - `guessPolicy`
   - `deckPolicy`
@@ -30,14 +39,25 @@
 - [deck.js](./deck.js)
 - [analytics.js](./analytics.js)
 - [soloSessionPayload.js](./soloSessionPayload.js)
+- [sessionRecovery.js](./sessionRecovery.js)
+
+## Assets Added So Far
+- `public/audio/af_heart/prompts/test-resumed.wav`
+- `public/audio/bm_lewis/**` (Kokoro clips for training/hotline voice)
 
 ## Files Changed So Far
 - [pages/Setup.jsx](./pages/Setup.jsx)
+- [pages/Instructions.jsx](./pages/Instructions.jsx)
 - [pages/TrainingRoom.jsx](./pages/TrainingRoom.jsx)
 - [pages/SoloResults.jsx](./pages/SoloResults.jsx)
 - [App.jsx](./App.jsx)
 - [csv.js](./csv.js)
 - [utils.js](./utils.js)
+- [googleSheetHistory.js](./googleSheetHistory.js)
+- [googleSheets.js](./googleSheets.js)
+- [speechMatcher.js](./speechMatcher.js)
+- [index.css](./index.css)
+- [scripts/generate-kokoro-clips.mjs](./scripts/generate-kokoro-clips.mjs)
 
 ## Recommended Immediate Next Step
 Run manual testing before further changes.
@@ -91,18 +111,24 @@ Suggested manual test checklist:
 - [x] Add `buildSessionAnalytics(...)`
 - [x] Compute dynamic baselines from `optionCount`
 - [x] Add per-option analytics support
+- [x] Enforce one-shot metric storage rules (store only `firstGuessAccuracy` + `zScore`; leave position/std-dev/weighted blank/null)
 
 ### Solo Payload And Runtime
 - [x] Create `soloSessionPayload.js`
 - [x] Normalize solo run output into canonical session payload
 - [x] Add `oneShot` runtime behavior in solo mode
 - [x] Keep `repeatUntilCorrect` runtime behavior working
+- [x] Add Training Hotline overlay in test phase (Ctrl/voice toggle, guessing disabled)
+- [x] Add interrupted-session recovery snapshot for mid-test exits (back/refresh/close)
 
 ### Solo Results
 - [x] Update `SoloResults` to consume `analytics`
 - [x] Show mode-aware summary metrics
 - [x] Update graph to use normalized trial data
 - [x] Make graph mode-aware for `oneShot` vs `repeatUntilCorrect`
+- [x] Add Google Sheets overview-first history view with per-session drilldown
+- [x] Add per-user Google history export and composite session grouping (`name + session_id`)
+- [x] Add Google Sheets overview rollup to show 5 key metrics for the selected user across all sessions
 
 ### Solo CSV
 - [x] Update solo CSV export to use canonical trial/session fields
@@ -115,6 +141,8 @@ Suggested manual test checklist:
 - [x] Add spoken command detection for `Training Room`
 - [x] Add spoken command detection for `Begin Test`
 - [x] Add spoken command detection for `Results`
+- [x] Add Instructions "Voice" popup so spoken phrases are discoverable without cluttering the main instructions text
+- [x] Add Kokoro clip generator “packs” (e.g. `--pack hotline`) to avoid always generating full sets
 
 ### UI Fixes During Testing
 - [x] Fix cards-per-round input so backspace can clear the field
@@ -301,12 +329,9 @@ A) oneShot modes
 - firstGuessAccuracy applies
 - zScore applies
 - per-option accuracy applies
-- averageGuessPosition should NOT be treated as a primary displayed metric
-- guessPositionStdDev should NOT be treated as a primary displayed metric
-- weightedScore is redundant in oneShot mode and should either:
-  1. be omitted from display entirely in oneShot mode, or
-  2. be computed internally as binary 1/0 but not emphasized
-Preferred: hide weightedScore in oneShot mode
+- averageGuessPosition should be left blank/null (do not store misleading artifacts like 1.00)
+- guessPositionStdDev should be left blank/null (do not store misleading artifacts like 0.00)
+- weightedScore should be left blank/null (redundant in oneShot mode)
 
 B) repeatUntilCorrect modes
 - firstGuessAccuracy applies

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CsvImportButton } from '../components/CsvImportButton.jsx';
 import { StatCard } from '../components/StatCard.jsx';
-import { buildSessionHistoryPoints, buildTrialTimelinePoints, formatGuessPositionLabel } from '../analytics.js';
-import { buildResultsFilename, buildSoloResultsCsv, downloadCsv, parseSoloResultsCsv } from '../csv.js';
+import { buildSessionAnalytics, buildSessionHistoryPoints, buildTrialTimelinePoints, formatGuessPositionLabel } from '../analytics.js';
+import { buildResultsFilename, buildSoloHistoryResultsCsv, buildSoloResultsCsv, buildUserHistoryFilename, downloadCsv, parseSoloResultsCsv } from '../csv.js';
 import { DECK_POLICIES, GUESS_POLICIES, SESSION_MODES } from '../sessionModel.js';
 import { speak } from '../tts.js';
-import { readTrialsSheetRows } from '../googleSheets.js';
+import { appendSoloTrials, readTrialsSheetRows } from '../googleSheets.js';
 import { buildSoloHistoryFromGoogleSheetRows } from '../googleSheetHistory.js';
 
 function SoloAccuracyGraph({ trials, guessPolicy }) {
@@ -25,7 +25,7 @@ function SoloAccuracyGraph({ trials, guessPolicy }) {
   return (
     <div style={{ width: "100%", maxWidth: "520px", background: "#111118", border: "1px solid #252530", borderRadius: "14px", padding: "18px 18px 12px", overflowX: "auto" }}>
       <div style={{ fontSize: "0.78rem", color: "#b9b4d8", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "12px" }}>
-        {guessPolicy === GUESS_POLICIES.ONE_SHOT ? "First Guess Outcome Over Time" : "Weighted Score Over Time"}
+        {guessPolicy === GUESS_POLICIES.ONE_SHOT ? "First Guess % (Running) Over Time" : "Weighted Score Over Time"}
       </div>
       <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Solo accuracy graph">
         {yTicks.map((tick) => (
@@ -42,7 +42,7 @@ function SoloAccuracyGraph({ trials, guessPolicy }) {
           Session Time
         </text>
         <text x={16} y={height / 2} fill="#7f7a9e" fontSize="11" textAnchor="middle" transform={`rotate(-90 16 ${height / 2})`}>
-          Score
+          {guessPolicy === GUESS_POLICIES.ONE_SHOT ? "First Guess %" : "Score"}
         </text>
         {path && <path d={path} fill="none" stroke="#60a5fa" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />}
         {points.map((point) => (
@@ -51,8 +51,8 @@ function SoloAccuracyGraph({ trials, guessPolicy }) {
             <title>{[
               `Card ${point.card}`,
               point.targetValue ? `Target: ${point.targetValue}` : null,
-              `Score: ${point.y}%`,
-              `First Guess: ${point.firstGuessCorrect ? "correct" : "incorrect"}`,
+              guessPolicy === GUESS_POLICIES.ONE_SHOT ? `First Guess % (running): ${point.y}%` : `Score: ${point.y}%`,
+              `Card first guess: ${point.firstGuessCorrect ? "correct" : "incorrect"}`,
               point.firstGuess ? `Heard: ${point.firstGuess}` : null,
               formatGuessPositionLabel(point.correctGuessIndex),
             ].filter(Boolean).join(" • ")}</title>
@@ -123,16 +123,34 @@ function SoloHistoryGraph({ sessions }) {
   );
 }
 
-export function SoloResults({ data, onRestart, onRedo, googleAuth, googleSheet }) {
+export function SoloResults({ data, onRestart, googleAuth, googleSheet }) {
   const [viewData, setViewData] = useState(data);
+  const [viewMode, setViewMode] = useState(() => (data?.openedFromGoogleResults ? "overview" : "session"));
   const [importError, setImportError] = useState("");
   const [importStatus, setImportStatus] = useState("");
   const [googleHistory, setGoogleHistory] = useState([]);
+  const [googleHistoryUser, setGoogleHistoryUser] = useState(() => (data?.name || ""));
   const [googleHistoryStatus, setGoogleHistoryStatus] = useState("");
   const [googleHistoryError, setGoogleHistoryError] = useState("");
+  const [googleSaveStatus, setGoogleSaveStatus] = useState("");
+  const [googleSaveError, setGoogleSaveError] = useState("");
+  const [isSavingToGoogle, setIsSavingToGoogle] = useState(false);
+  const [hasSavedRecovery, setHasSavedRecovery] = useState(false);
 
   useEffect(() => {
     setViewData(data);
+    setHasSavedRecovery(false);
+    setGoogleSaveStatus("");
+    setGoogleSaveError("");
+    if (Array.isArray(data?.googleHistory) && data.googleHistory.length > 0) {
+      setGoogleHistory(data.googleHistory);
+      setGoogleHistoryStatus(`Loaded ${data.googleHistory.length} sessions from Google Sheets.`);
+      setGoogleHistoryError("");
+      if (data?.openedFromGoogleResults) {
+        setViewMode("overview");
+        setGoogleHistoryUser(data?.name || "");
+      }
+    }
   }, [data]);
 
   useEffect(() => {
@@ -159,8 +177,22 @@ export function SoloResults({ data, onRestart, onRedo, googleAuth, googleSheet }
     return name;
   }, [name, viewData.importedFromCsv]);
 
-  const exportCSV = () => {
+  const exportSessionCsv = () => {
     downloadCsv(buildResultsFilename(name, category), buildSoloResultsCsv(viewData));
+  };
+
+  const exportUserHistoryCsv = () => {
+    const selectedUser = googleHistoryUser || viewData.name;
+    if (!selectedUser) {
+      return;
+    }
+
+    const sessions = googleHistory.filter((session) => session?.name === selectedUser);
+    if (sessions.length === 0) {
+      return;
+    }
+
+    downloadCsv(buildUserHistoryFilename(selectedUser), buildSoloHistoryResultsCsv(sessions));
   };
 
   const importCsv = async (file) => {
@@ -193,10 +225,11 @@ export function SoloResults({ data, onRestart, onRedo, googleAuth, googleSheet }
 
     try {
       const rows = await readTrialsSheetRows(googleAuth.accessToken, googleSheet.spreadsheetId);
-      const sessions = buildSoloHistoryFromGoogleSheetRows(rows, viewData.name);
+      const sessions = buildSoloHistoryFromGoogleSheetRows(rows);
       setGoogleHistory(sessions);
       setGoogleHistoryStatus(`Loaded ${sessions.length} sessions from Google Sheets.`);
       setGoogleHistoryError("");
+      setViewMode("overview");
     } catch (error) {
       setGoogleHistory([]);
       setGoogleHistoryError(error instanceof Error ? error.message : "Unable to load Google Sheets history.");
@@ -204,60 +237,296 @@ export function SoloResults({ data, onRestart, onRedo, googleAuth, googleSheet }
     }
   };
 
+  const isRecoveredSession = Boolean(data?.interruptedFromRecovery || viewData?.interruptedFromRecovery);
+
+  const saveInterruptedSessionToGoogle = async () => {
+    setGoogleSaveStatus("");
+    setGoogleSaveError("");
+
+    if (!isRecoveredSession) {
+      return;
+    }
+
+    if (!googleAuth?.accessToken || googleAuth?.status !== "connected") {
+      setGoogleSaveError("Connect Google before saving this recovered session.");
+      return;
+    }
+
+    if (!googleSheet?.spreadsheetId) {
+      setGoogleSaveError("Choose or create a Google sheet before saving this recovered session.");
+      return;
+    }
+
+    try {
+      setIsSavingToGoogle(true);
+      const appendResult = await appendSoloTrials(googleAuth.accessToken, googleSheet.spreadsheetId, viewData);
+      setGoogleSaveStatus(`Saved ${appendResult.appendedRowCount} trial rows to Google Sheets.`);
+      setGoogleSaveError("");
+      setHasSavedRecovery(true);
+    } catch (error) {
+      setGoogleSaveError(error instanceof Error ? error.message : "Unable to save this recovered session to Google Sheets.");
+      setGoogleSaveStatus("");
+    } finally {
+      setIsSavingToGoogle(false);
+    }
+  };
+
+  const googleHistoryUserNames = useMemo(() => {
+    const names = new Set(googleHistory.map((session) => session?.name).filter(Boolean));
+    return [...names].sort((a, b) => String(a).localeCompare(String(b)));
+  }, [googleHistory]);
+
+  const filteredGoogleHistory = useMemo(() => {
+    const selectedUser = googleHistoryUser || viewData.name;
+    if (!selectedUser) {
+      return [];
+    }
+
+    return googleHistory.filter((session) => session?.name === selectedUser);
+  }, [googleHistory, googleHistoryUser, viewData.name]);
+
+  const overviewAnalytics = useMemo(() => {
+    if (!Array.isArray(filteredGoogleHistory) || filteredGoogleHistory.length === 0) {
+      return null;
+    }
+
+    const overviewTrials = filteredGoogleHistory.flatMap((session) => Array.isArray(session?.trials) ? session.trials : []);
+    if (overviewTrials.length === 0) {
+      return null;
+    }
+
+    const optionCountHistogram = new Map();
+    for (const trial of overviewTrials) {
+      const optionCount = trial?.optionCount;
+      if (!Number.isFinite(optionCount) || optionCount <= 0) continue;
+      optionCountHistogram.set(optionCount, (optionCountHistogram.get(optionCount) || 0) + 1);
+    }
+
+    let modeOptionCount = null;
+    for (const [optionCount, count] of optionCountHistogram.entries()) {
+      if (modeOptionCount == null || count > (optionCountHistogram.get(modeOptionCount) || 0)) {
+        modeOptionCount = optionCount;
+      }
+    }
+
+    const optionValues = [...new Set(overviewTrials.map((trial) => trial?.targetValue).filter((value) => typeof value === "string" && value.length > 0))];
+
+    return {
+      trialCount: overviewTrials.length,
+      optionCount: modeOptionCount,
+      analytics: buildSessionAnalytics({
+        trials: overviewTrials,
+        optionValues,
+        optionCount: modeOptionCount,
+        guessPolicy: GUESS_POLICIES.REPEAT_UNTIL_CORRECT,
+      }),
+    };
+  }, [filteredGoogleHistory]);
+
+  useEffect(() => {
+    if (googleHistoryUserNames.length === 0) {
+      return;
+    }
+
+    const latestUser = filteredGoogleHistory.length > 0
+      ? filteredGoogleHistory[filteredGoogleHistory.length - 1]?.name
+      : (googleHistory[googleHistory.length - 1]?.name || "");
+
+    const defaultUser = viewData.name || latestUser || googleHistoryUserNames[0] || "";
+
+    if (!defaultUser) {
+      return;
+    }
+
+    if (!googleHistoryUser || !googleHistoryUserNames.includes(googleHistoryUser)) {
+      setGoogleHistoryUser(defaultUser);
+    }
+  }, [filteredGoogleHistory, googleHistory, googleHistoryUser, googleHistoryUserNames, viewData.name]);
+
   return (
     <div style={{ minHeight: "100vh", background: "#141420", fontFamily: "'Georgia', serif", color: "#f0ece4", padding: "40px 24px", display: "flex", flexDirection: "column", alignItems: "center" }}>
       <div style={{ fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "2rem", fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", background: "linear-gradient(120deg, #93c5fd 0%, #a78bfa 40%, #e879f9 70%, #f9a8d4 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text", marginBottom: "6px" }}>Results</div>
       <div style={{ fontSize: "0.7rem", color: "#6b5aaa", letterSpacing: "0.2em", marginBottom: "32px", textTransform: "uppercase" }}>{headerSubtitle}</div>
-      {modeCards.length > 0 && (
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center", marginBottom: "20px" }}>
-          {modeCards.map((label) => (
-            <div key={label} style={{ border: "1px solid #3a3a55", borderRadius: "999px", padding: "6px 12px", fontSize: "0.68rem", color: "#c9c3e5", letterSpacing: "0.08em", textTransform: "uppercase", background: "#181825" }}>
-              {label}
-            </div>
-          ))}
-        </div>
-      )}
-      {shareCode && (
-        <div style={{ width: "100%", maxWidth: "520px", background: "#111118", border: "1px solid #252530", borderRadius: "12px", padding: "14px 16px", marginBottom: "20px", boxSizing: "border-box" }}>
-          <div style={{ fontSize: "0.66rem", color: "#93c5fd", letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: "8px" }}>
-            Shared Session
-          </div>
-          <div style={{ fontSize: "0.72rem", color: "#dbeafe", lineHeight: 1.7, wordBreak: "break-all", overflowWrap: "anywhere" }}>
-            {shareCode}
-          </div>
-        </div>
-      )}
 
-      <div style={{ display: "flex", gap: "16px", marginBottom: "32px", flexWrap: "wrap", justifyContent: "center" }}>
-        {firstGuessAccuracy !== null ? (
-          <StatCard label="First Guess" value={`${firstGuessAccuracy}%`} color={firstGuessAccuracy >= 70 ? "#22c55e" : firstGuessAccuracy >= 40 ? "#eab308" : "#ef4444"} />
-        ) : (
-          <StatCard label="Avg Accuracy" value={`${avgAcc}%`} color={avgAcc >= 70 ? "#22c55e" : avgAcc >= 40 ? "#eab308" : "#ef4444"} />
-        )}
-        {zScore !== null && <StatCard label="Z-Score" value={zScore.toFixed(2)} color={zScore >= 2 ? "#22c55e" : zScore >= 1 ? "#eab308" : "#f97316"} />}
-        {!isOneShot && averageGuessPosition !== null && <StatCard label="Avg Guess Pos" value={averageGuessPosition.toFixed(2)} color="#60a5fa" />}
-        {!isOneShot && guessPositionStdDev !== null && <StatCard label="Guess Std Dev" value={guessPositionStdDev.toFixed(2)} color="#93c5fd" />}
-        {!isOneShot && weightedScore !== null && <StatCard label="Weighted Score" value={`${weightedScore}%`} color={weightedScore >= 70 ? "#22c55e" : weightedScore >= 40 ? "#eab308" : "#ef4444"} />}
-        {avgProx !== null && <StatCard label="Avg Proximity" value={`${avgProx}%`} color="#a78bfa" />}
-        <StatCard label="Cards" value={results.length} color="#60a5fa" />
-      </div>
-
-      {Array.isArray(trials) && trials.some((trial) => trial.trialDurationMs != null) && (
-        <div style={{ width: "100%", display: "flex", justifyContent: "center", marginBottom: "24px" }}>
-          <SoloAccuracyGraph trials={trials} guessPolicy={guessPolicy} />
+      {isRecoveredSession && !hasSavedRecovery && (
+        <div style={{ width: "100%", maxWidth: "520px", background: "#111118", border: "1px solid #f59e0b55", borderRadius: "12px", padding: "12px 14px", marginBottom: "18px", boxSizing: "border-box" }}>
+          <div style={{ fontSize: "0.66rem", color: "#fbbf24", letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: "8px" }}>
+            Recovered Session
+          </div>
+          <div style={{ fontSize: "0.72rem", color: "#dbeafe", lineHeight: 1.6, marginBottom: "12px" }}>
+            This test was recovered after an interruption. Save it to Google Sheets to keep it in your history.
+          </div>
+          <button
+            onClick={saveInterruptedSessionToGoogle}
+            disabled={isSavingToGoogle}
+            style={{ width: "100%", background: isSavingToGoogle ? "#1c1c28" : "transparent", border: "1px solid #34d39966", borderRadius: "10px", color: isSavingToGoogle ? "#6b7280" : "#34d399", padding: "12px 14px", fontSize: "0.82rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: isSavingToGoogle ? "wait" : "pointer" }}
+          >
+            {isSavingToGoogle ? "Saving..." : "Save to Google Sheets"}
+          </button>
         </div>
       )}
 
       {googleHistory.length > 0 && (
-        <div style={{ width: "100%", display: "flex", justifyContent: "center", marginBottom: "24px" }}>
-          <SoloHistoryGraph sessions={googleHistory} />
+        <div style={{ width: "100%", maxWidth: "520px", display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center", marginBottom: "18px" }}>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ fontSize: "0.66rem", color: "#93c5fd", letterSpacing: "0.16em", textTransform: "uppercase" }}>History</div>
+            {googleHistoryUserNames.length > 1 && (
+              <select
+                value={googleHistoryUser || viewData.name || ""}
+                onChange={(event) => setGoogleHistoryUser(event.target.value)}
+                style={{ background: "#111118", border: "1px solid #252530", borderRadius: "10px", color: "#dbeafe", padding: "8px 10px", fontSize: "0.78rem" }}
+              >
+                {googleHistoryUserNames.map((nameOption) => (
+                  <option key={nameOption} value={nameOption}>
+                    {nameOption}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <button
+              onClick={() => setViewMode("overview")}
+              style={{ background: viewMode === "overview" ? "#1f2937" : "transparent", border: "1px solid #252530", borderRadius: "10px", color: "#c9c3e5", padding: "8px 12px", fontSize: "0.72rem", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}
+            >
+              Overview
+            </button>
+            <button
+              onClick={() => setViewMode("session")}
+              style={{ background: viewMode === "session" ? "#1f2937" : "transparent", border: "1px solid #252530", borderRadius: "10px", color: "#c9c3e5", padding: "8px 12px", fontSize: "0.72rem", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}
+            >
+              Session
+            </button>
+          </div>
         </div>
       )}
 
-      {!Array.isArray(trials) && (
-        <div style={{ width: "100%", maxWidth: "520px", display: "flex", flexDirection: "column", gap: "8px" }}>
-        {results.map((r, i) => {
-          const tgt = colors.find(c => c.name === r.target);
+      {googleHistory.length > 0 && viewMode === "overview" && (
+        <div style={{ width: "100%", maxWidth: "520px", display: "flex", flexDirection: "column", gap: "14px", marginBottom: "26px" }}>
+          {overviewAnalytics?.analytics && (
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", justifyContent: "center" }}>
+              <StatCard
+                label="First Guess"
+                value={`${Math.round((overviewAnalytics.analytics.firstGuessAccuracy ?? 0) * 100)}%`}
+                color={(overviewAnalytics.analytics.firstGuessAccuracy ?? 0) >= 0.7 ? "#22c55e" : (overviewAnalytics.analytics.firstGuessAccuracy ?? 0) >= 0.4 ? "#eab308" : "#ef4444"}
+              />
+              {overviewAnalytics.analytics.zScore != null && (
+                <StatCard
+                  label="Z-Score"
+                  value={overviewAnalytics.analytics.zScore.toFixed(2)}
+                  color={overviewAnalytics.analytics.zScore >= 2 ? "#22c55e" : overviewAnalytics.analytics.zScore >= 1 ? "#eab308" : "#f97316"}
+                />
+              )}
+              {overviewAnalytics.analytics.averageGuessPosition != null && (
+                <StatCard label="Avg Guess Pos" value={overviewAnalytics.analytics.averageGuessPosition.toFixed(2)} color="#60a5fa" />
+              )}
+              {overviewAnalytics.analytics.guessPositionStdDev != null && (
+                <StatCard label="Guess Std Dev" value={overviewAnalytics.analytics.guessPositionStdDev.toFixed(2)} color="#93c5fd" />
+              )}
+              {overviewAnalytics.analytics.weightedScore != null && (
+                <StatCard
+                  label="Weighted Score"
+                  value={`${Math.round(overviewAnalytics.analytics.weightedScore * 100)}%`}
+                  color={overviewAnalytics.analytics.weightedScore >= 0.7 ? "#22c55e" : overviewAnalytics.analytics.weightedScore >= 0.4 ? "#eab308" : "#ef4444"}
+                />
+              )}
+              <StatCard label="Cards" value={overviewAnalytics.trialCount} color="#60a5fa" />
+            </div>
+          )}
+          <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+            <SoloHistoryGraph sessions={filteredGoogleHistory} />
+          </div>
+          <div style={{ background: "#111118", border: "1px solid #252530", borderRadius: "14px", padding: "14px 16px" }}>
+            <div style={{ fontSize: "0.72rem", color: "#b9b4d8", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "10px" }}>
+              Sessions ({filteredGoogleHistory.length})
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {[...filteredGoogleHistory].slice().reverse().slice(0, 40).map((session) => {
+                const endedAt = session?.endedAt || session?.startedAt || "";
+                const dateLabel = endedAt ? new Date(endedAt).toLocaleDateString("en-US") : "";
+                const score = session?.guessPolicy === GUESS_POLICIES.ONE_SHOT
+                  ? session?.analytics?.firstGuessAccuracy
+                  : session?.analytics?.weightedScore ?? session?.analytics?.firstGuessAccuracy;
+                const scorePercent = score != null ? Math.round(score * 100) : null;
+
+                return (
+                  <button
+                    key={session.sessionId || `${session.name}-${endedAt}`}
+                    onClick={() => {
+                      setViewData(session);
+                      setViewMode("session");
+                    }}
+                    style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", textAlign: "left", background: "#181825", border: "1px solid #252530", borderRadius: "12px", padding: "12px 12px", cursor: "pointer" }}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                      <div style={{ fontSize: "0.86rem", color: "#f0ece4", fontWeight: 600 }}>
+                        {session.name || "Session"}
+                        {session.category ? <span style={{ marginLeft: "10px", fontSize: "0.68rem", color: "#6b5aaa", letterSpacing: "0.14em", textTransform: "uppercase" }}>{session.category}</span> : null}
+                      </div>
+                      <div style={{ fontSize: "0.7rem", color: "#7f7a9e", letterSpacing: "0.06em" }}>
+                        {dateLabel}
+                        {session.guessPolicy ? ` · ${session.guessPolicy === GUESS_POLICIES.ONE_SHOT ? "One Shot" : "Repeat Until Correct"}` : ""}
+                        {session.deckPolicy ? ` · ${session.deckPolicy === DECK_POLICIES.BALANCED_DECK ? "Balanced" : "Independent"}` : ""}
+                        {session.trials?.length ? ` · ${session.trials.length} cards` : ""}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: "0.86rem", fontWeight: 700, color: scorePercent != null ? (scorePercent >= 70 ? "#22c55e" : scorePercent >= 40 ? "#eab308" : "#ef4444") : "#9090bb" }}>
+                      {scorePercent != null ? `${scorePercent}%` : "—"}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewMode === "session" && (
+        <>
+          {modeCards.length > 0 && (
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center", marginBottom: "20px" }}>
+              {modeCards.map((label) => (
+                <div key={label} style={{ border: "1px solid #3a3a55", borderRadius: "999px", padding: "6px 12px", fontSize: "0.68rem", color: "#c9c3e5", letterSpacing: "0.08em", textTransform: "uppercase", background: "#181825" }}>
+                  {label}
+                </div>
+              ))}
+            </div>
+          )}
+          {shareCode && (
+            <div style={{ width: "100%", maxWidth: "520px", background: "#111118", border: "1px solid #252530", borderRadius: "12px", padding: "14px 16px", marginBottom: "20px", boxSizing: "border-box" }}>
+              <div style={{ fontSize: "0.66rem", color: "#93c5fd", letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: "8px" }}>
+                Shared Session
+              </div>
+              <div style={{ fontSize: "0.72rem", color: "#dbeafe", lineHeight: 1.7, wordBreak: "break-all", overflowWrap: "anywhere" }}>
+                {shareCode}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "16px", marginBottom: "32px", flexWrap: "wrap", justifyContent: "center" }}>
+            {firstGuessAccuracy !== null ? (
+              <StatCard label="First Guess" value={`${firstGuessAccuracy}%`} color={firstGuessAccuracy >= 70 ? "#22c55e" : firstGuessAccuracy >= 40 ? "#eab308" : "#ef4444"} />
+            ) : (
+              <StatCard label="Avg Accuracy" value={`${avgAcc}%`} color={avgAcc >= 70 ? "#22c55e" : avgAcc >= 40 ? "#eab308" : "#ef4444"} />
+            )}
+            {zScore !== null && <StatCard label="Z-Score" value={zScore.toFixed(2)} color={zScore >= 2 ? "#22c55e" : zScore >= 1 ? "#eab308" : "#f97316"} />}
+            {!isOneShot && averageGuessPosition !== null && <StatCard label="Avg Guess Pos" value={averageGuessPosition.toFixed(2)} color="#60a5fa" />}
+            {!isOneShot && guessPositionStdDev !== null && <StatCard label="Guess Std Dev" value={guessPositionStdDev.toFixed(2)} color="#93c5fd" />}
+            {!isOneShot && weightedScore !== null && <StatCard label="Weighted Score" value={`${weightedScore}%`} color={weightedScore >= 70 ? "#22c55e" : weightedScore >= 40 ? "#eab308" : "#ef4444"} />}
+            {avgProx !== null && <StatCard label="Avg Proximity" value={`${avgProx}%`} color="#a78bfa" />}
+            <StatCard label="Cards" value={results.length} color="#60a5fa" />
+          </div>
+
+          {Array.isArray(trials) && trials.some((trial) => trial.trialDurationMs != null) && (
+            <div style={{ width: "100%", display: "flex", justifyContent: "center", marginBottom: "24px" }}>
+              <SoloAccuracyGraph trials={trials} guessPolicy={guessPolicy} />
+            </div>
+          )}
+
+          {!Array.isArray(trials) && (
+            <div style={{ width: "100%", maxWidth: "520px", display: "flex", flexDirection: "column", gap: "8px" }}>
+            {results.map((r, i) => {
+              const tgt = colors.find(c => c.name === r.target);
           return (
             <div key={i} style={{ background: "#181825", borderRadius: "8px", padding: "10px 14px", borderLeft: `3px solid ${tgt?.hex}` }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "5px" }}>
@@ -290,31 +559,35 @@ export function SoloResults({ data, onRestart, onRedo, googleAuth, googleSheet }
               </div>
             </div>
           );
-        })}
-        </div>
+            })}
+            </div>
+          )}
+        </>
       )}
       <div style={{ display: "flex", gap: "12px", marginTop: "32px", flexWrap: "wrap", justifyContent: "center" }}>
-        <button onClick={onRedo} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "10px", color: "white", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 4px 20px #7c3aed44" }}>
-          Redo Test
-        </button>
         <CsvImportButton
           onSelect={importCsv}
           buttonStyle={{ background: "transparent", border: "1px solid #f59e0b66", borderRadius: "10px", color: "#fbbf24", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}
           statusStyle={{ fontSize: "0.68rem", color: "#d6b06b", marginTop: "12px", letterSpacing: "0.04em", lineHeight: 1.6 }}
         />
-        <button onClick={exportCSV} style={{ background: "transparent", border: "1px solid #22c55e66", borderRadius: "10px", color: "#22c55e", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
-          Download CSV
+        {googleHistory.length > 0 && (
+          <button onClick={exportUserHistoryCsv} style={{ background: "transparent", border: "1px solid #34d39966", borderRadius: "10px", color: "#34d399", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
+            Download User CSV
+          </button>
+        )}
+        <button onClick={exportSessionCsv} style={{ background: "transparent", border: "1px solid #22c55e66", borderRadius: "10px", color: "#22c55e", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
+          Download Session CSV
         </button>
         <button onClick={loadGoogleHistory} style={{ background: "transparent", border: "1px solid #34d39966", borderRadius: "10px", color: "#34d399", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
-          Load Google History
+          Refresh Google History
         </button>
         <button onClick={onRestart} style={{ background: "transparent", border: "1px solid #252530", borderRadius: "10px", color: "#9090bb", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
           Back to Setup
         </button>
       </div>
-      {(importStatus || importError || googleHistoryStatus || googleHistoryError) && (
+      {(importStatus || importError || googleHistoryStatus || googleHistoryError || googleSaveStatus || googleSaveError) && (
         <div style={{ marginTop: "16px", fontSize: "0.72rem", color: importError || googleHistoryError ? "#fca5a5" : "#a7f3d0", letterSpacing: "0.04em", lineHeight: 1.6 }}>
-          {importError || googleHistoryError || googleHistoryStatus || importStatus}
+          {importError || googleHistoryError || googleSaveError || googleSaveStatus || googleHistoryStatus || importStatus}
         </div>
       )}
     </div>

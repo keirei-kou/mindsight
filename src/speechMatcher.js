@@ -22,13 +22,22 @@ const ALIASES = {
   Cross: ["cross", "criss", "crisscross", "brought", "ross", "crossed", "kross"],
 };
 
-const VOICE_COMMAND_ALIASES = {
+export const VOICE_COMMAND_ALIASES = {
   trainingRoom: [
     "training room",
     "training",
     "go to training room",
     "back to training room",
     "return to training room",
+  ],
+  resumeTest: [
+    "resume test",
+    "resume",
+    "close training",
+    "close training room",
+    "close hotline",
+    "test continue",
+    "continue test",
   ],
   beginTest: [
     "test",

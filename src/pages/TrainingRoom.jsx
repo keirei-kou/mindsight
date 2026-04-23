@@ -5,6 +5,7 @@ import { createSessionId, GUESS_POLICIES, SESSION_MODES } from '../sessionModel.
 import { speak } from '../tts.js';
 import { isSpeechRecognitionSupported, startContinuousListening } from '../speechRecognition.js';
 import { matchTranscriptToCommand, matchTranscriptToItems } from '../speechMatcher.js';
+import { persistInterruptedSession } from '../sessionRecovery.js';
 
 const nowMs = () => Date.now();
 const CARD_ORDINALS = [
@@ -16,6 +17,8 @@ const CARD_ORDINALS = [
 const FIRST_TEST_CARD_ANNOUNCE_DELAY_MS = 1800;
 const CARD_ANNOUNCE_DELAY_MS = 300;
 const RESULTS_ANNOUNCE_DELAY_MS = 1400;
+const HOTLINE_VOICE = "bm_lewis";
+const TEST_VOICE = "af_heart";
 export function TrainingRoom({ items, slots, category, name, appMode = SESSION_MODES.SOLO, shareCode = null, guessPolicy, deckPolicy, onBack, onInstructions, onFinish }) {
   const [phase, setPhase]     = useState("training");
   const [itemIdx, setItemIdx] = useState(0);
@@ -26,9 +29,13 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
   const [guesses, setGuesses] = useState([]);
   const [results, setResults] = useState([]);
   const [done, setDone]       = useState(false);
+  const [isHotlineOpen, setIsHotlineOpen] = useState(false);
+  const isHotlineOpenRef = useRef(false);
+  const hotlineToggleBlockUntilRef = useRef(0);
   const [micState, setMicState] = useState("off");
   const [heardPhrase, setHeardPhrase] = useState("");
   const [heardMatchInfo, setHeardMatchInfo] = useState(null);
+  const [lastMatchInfo, setLastMatchInfo] = useState(null);
   const [pendingConfirmation, setPendingConfirmation] = useState(null);
   const advanceTimeoutRef     = useRef(null);
   const recognitionRef        = useRef(null);
@@ -58,6 +65,10 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
   useEffect(() => {
     doneRef.current = done;
   }, [done]);
+
+  useEffect(() => {
+    isHotlineOpenRef.current = isHotlineOpen;
+  }, [isHotlineOpen]);
 
   useEffect(() => {
     pendingConfirmationRef.current = pendingConfirmation;
@@ -100,6 +111,17 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
     return () => document.body.classList.remove("mindsight-fullbleed");
   }, []);
 
+  useEffect(() => {
+    const onPageHide = () => recordInterruption("pagehide");
+    const onBeforeUnload = () => recordInterruption("beforeunload");
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, []);
+
   function stopListening() {
     recognitionRef.current?.stop?.();
     recognitionRef.current = null;
@@ -110,6 +132,7 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
     setPendingConfirmation(null);
     setHeardPhrase("");
     setHeardMatchInfo(null);
+    setIsHotlineOpen(false);
     setGuesses([]);
     setDone(false);
     setSlotIdx(0);
@@ -120,6 +143,24 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
     testStartBlockUntilRef.current = nowMs() + 250;
     setPhase("test");
     speak("Test started.");
+  }
+
+  function toggleHotline(nextValue) {
+    const now = nowMs();
+    if (now < hotlineToggleBlockUntilRef.current) {
+      return;
+    }
+
+    hotlineToggleBlockUntilRef.current = now + 350;
+
+    const resolvedNext = typeof nextValue === "boolean" ? nextValue : !isHotlineOpenRef.current;
+    setIsHotlineOpen(resolvedNext);
+
+    if (resolvedNext) {
+      speak("Training room.", { voice: HOTLINE_VOICE });
+    } else {
+      speak("Test resumed.", { voice: TEST_VOICE });
+    }
   }
 
   function finishSession() {
@@ -137,6 +178,49 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
       startedAt: sessionStartRef.current,
       endedAt: new Date().toISOString(),
     }));
+  }
+
+  function recordInterruption(reason = "interrupted") {
+    const { phase, slotIdx } = latest.current;
+    const { name, items, category, appMode, shareCode, guessPolicy, deckPolicy } = finishMetaRef.current;
+
+    if (phase !== "test") {
+      return;
+    }
+
+    const startedAt = sessionStartRef.current;
+    if (!startedAt) {
+      return;
+    }
+
+    const completedResults = resultsRef.current || [];
+    const hasProgress = completedResults.length > 0 || slotIdx > 0;
+    if (!hasProgress) {
+      return;
+    }
+
+    persistInterruptedSession({
+      version: 1,
+      reason,
+      sessionId: sessionIdRef.current,
+      startedAt,
+      endedAt: new Date().toISOString(),
+      name,
+      category,
+      activeOptions: items,
+      appMode,
+      shareCode,
+      guessPolicy,
+      deckPolicy,
+      completedResults,
+      slotIdx,
+      totalSlots: slots?.length ?? null,
+    });
+  }
+
+  function handleBackToSetup() {
+    recordInterruption("backToSetup");
+    onBack?.();
   }
 
 function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
@@ -163,7 +247,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
     }
 
     setItemIdx(matchedIdx);
-    speak(itemName);
+    speak(itemName, { voice: isHotlineOpenRef.current ? HOTLINE_VOICE : undefined });
   }
 
   function finalizeCardResult(newGuesses, options = {}) {
@@ -208,6 +292,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
     const { guessPolicy } = finishMetaRef.current;
 
     if (phase !== "test" || doneRef.current || !target) return;
+    if (isHotlineOpenRef.current) return;
     if (nowMs() < testStartBlockUntilRef.current) return;
     if (guesses.length > 0 && guesses[guesses.length - 1].color === target.name) return;
     if (guessPolicy === GUESS_POLICIES.ONE_SHOT && guesses.length > 0) return;
@@ -262,16 +347,16 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
         if (commandMatch.command === "trainingRoom" && phase === "test") {
           pendingConfirmationRef.current = null;
           setPendingConfirmation(null);
-          setHeardPhrase("");
           setHeardMatchInfo(null);
-          setPhase("training");
-          setGuesses([]);
-          setSlotIdx(0);
-          setResults([]);
-          resultsRef.current = [];
-          setDone(false);
-          setItemIdx(0);
-          speak("Training room.");
+          toggleHotline(true);
+          return;
+        }
+
+        if (commandMatch.command === "resumeTest" && phase === "test" && isHotlineOpenRef.current) {
+          pendingConfirmationRef.current = null;
+          setPendingConfirmation(null);
+          setHeardMatchInfo(null);
+          toggleHotline(false);
           return;
         }
 
@@ -323,10 +408,13 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
         const match = matchTranscriptToItems(raw, displayItemsRef.current);
         if (match.ambiguous) {
           setHeardMatchInfo({ status: "ambiguous" });
+          setLastMatchInfo({ status: "ambiguous" });
         } else if (match.match) {
           setHeardMatchInfo({ status: "match", name: match.match, score: match.score });
+          setLastMatchInfo({ status: "match", name: match.match, score: match.score });
         } else {
           setHeardMatchInfo({ status: "none", score: match.score });
+          setLastMatchInfo({ status: "none", score: match.score });
         }
 
         if (match.ambiguous) {
@@ -339,6 +427,11 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
 
         if (match.score >= 0.88) {
           if (phase === "training") {
+            focusTrainingItem(match.match);
+            return;
+          }
+
+          if (isHotlineOpenRef.current) {
             focusTrainingItem(match.match);
             return;
           }
@@ -357,6 +450,10 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
           return;
         }
 
+        if (isHotlineOpenRef.current) {
+          return;
+        }
+
         pendingConfirmationRef.current = match.match;
         setPendingConfirmation(match.match);
         speak(`Did you say ${match.match}?`);
@@ -370,12 +467,20 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
     const handler = (e) => {
       const { phase, slotIdx, guesses, results, target } = latest.current;
       const { onFinish, slotCount } = finishMetaRef.current;
+
+      if ((e.code === "ControlLeft" || e.code === "ControlRight") && phase === "test") {
+        if (e.repeat) return;
+        e.preventDefault();
+        toggleHotline();
+        return;
+      }
+
       if (e.key.toLowerCase() === "a") {
         e.preventDefault();
         setItemIdx(prev => {
           const deck = displayItemsRef.current;
           const next = prev === 0 ? deck.length - 1 : prev - 1;
-          speak(deck[next].name);
+          speak(deck[next].name, { voice: isHotlineOpenRef.current ? HOTLINE_VOICE : undefined });
           return next;
         });
         return;
@@ -385,7 +490,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
         setItemIdx(prev => {
           const deck = displayItemsRef.current;
           const next = prev === deck.length - 1 ? 0 : prev + 1;
-          speak(deck[next].name);
+          speak(deck[next].name, { voice: isHotlineOpenRef.current ? HOTLINE_VOICE : undefined });
           return next;
         });
         return;
@@ -393,10 +498,10 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
       if (e.key.toLowerCase() === "s") {
         e.preventDefault();
         const currentItem = displayItemsRef.current[itemIdxRef.current];
-        if (currentItem) speak(currentItem.name);
+        if (currentItem) speak(currentItem.name, { voice: isHotlineOpenRef.current ? HOTLINE_VOICE : undefined });
         return;
       }
-      if (e.key.toLowerCase() === "x" && phase === "test" && !doneRef.current) {
+      if (e.key.toLowerCase() === "x" && phase === "test" && !doneRef.current && !isHotlineOpenRef.current) {
         e.preventDefault();
         if (!target) return;
         finalizeCardResult(guesses, {
@@ -409,6 +514,9 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
       if (e.code === "Space") {
         e.preventDefault();
         if (e.repeat) return;
+        if (phase === "test" && isHotlineOpenRef.current) {
+          return;
+        }
         if (phase === "training") { beginTestPhase(); return; }
         if (doneRef.current) { finishSession(); return; }
         if (!target) return;
@@ -418,11 +526,19 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
       }
       if (e.code === "Enter") {
         e.preventDefault();
+        if (phase === "test" && isHotlineOpenRef.current) {
+          return;
+        }
         if (phase === "training") { beginTestPhase(); return; }
         if (doneRef.current) { finishSession(); return; }
       }
       if ((e.code === "ShiftLeft" || e.code === "ShiftRight") && phase === "test" && target) {
         e.preventDefault();
+        if (isHotlineOpenRef.current) {
+          const currentItem = displayItemsRef.current[itemIdxRef.current];
+          if (currentItem) speak(currentItem.name, { voice: HOTLINE_VOICE });
+          return;
+        }
         speak((CARD_ORDINALS[slotIdx] || ("Card " + (slotIdx + 1))) + " card.");
       }
     };
@@ -431,16 +547,15 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
   }, []);
 
   const targetItem = target ? lookup[target.name] : null;
-  const bgItem = phase === "test" ? targetItem : (displayItems[itemIdx] ?? items[0]);
+  const bgItem = phase === "test"
+    ? (isHotlineOpen ? (displayItems[itemIdx] ?? items[0]) : targetItem)
+    : (displayItems[itemIdx] ?? items[0]);
   const bg = (isNumbers || isShapes) ? "#1a1a2a" : (bgItem?.hex ?? "#111118");
   const isOval = bgItem?.name === "Oval";
   const stageBackground = isColors
     ? (bgItem?.hex ?? "#111118")
     : `linear-gradient(90deg, ${bgItem?.hex ?? "#1a1a2a"}66 0%, ${bgItem?.hex ?? "#1a1a2a"}2e 18%, #1a1a2a 50%, ${bgItem?.hex ?? "#1a1a2a"}2e 82%, ${bgItem?.hex ?? "#1a1a2a"}66 100%)`;
-  const longestOptionNameLength = displayItems.reduce((maxLength, item) => {
-    return Math.max(maxLength, item.name.length);
-  }, 0);
-  const guessTrayMinWidth = `${Math.max(12, longestOptionNameLength + 5)}ch`;
+  const guessTrayMinWidth = "14ch";
   const showVoiceDebug = Boolean(heardPhrase || heardMatchInfo || pendingConfirmation);
   const micStatusLabel = micState === "retrying" ? "listening" : micState;
   const micStatusColor = micStatusLabel === "listening" ? "#f472b6" : "rgba(255,255,255,0.45)";
@@ -448,6 +563,49 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
   const shownMatchName = pendingConfirmation || heardMatchInfo?.name || null;
   const shownMatchItem = shownMatchName ? lookup[shownMatchName] : null;
   const shownMatchPercent = heardMatchInfo?.score != null ? Math.round(heardMatchInfo.score * 100) : null;
+  const displayMatch = lastMatchInfo?.status === "match"
+    ? { name: lastMatchInfo.name, scorePercent: lastMatchInfo.score != null ? Math.round(lastMatchInfo.score * 100) : null }
+    : null;
+  const displayMatchItem = displayMatch?.name ? lookup[displayMatch.name] : null;
+  const displayMatchPercent = displayMatch?.scorePercent ?? null;
+  const detectedMatch = (() => {
+    if (pendingConfirmation) {
+      return { status: "confirm", name: pendingConfirmation, scorePercent: shownMatchPercent };
+    }
+    if (heardMatchInfo?.status === "match") {
+      return { status: "match", name: heardMatchInfo.name, scorePercent: shownMatchPercent };
+    }
+    if (heardMatchInfo?.status === "ambiguous") {
+      return { status: "ambiguous" };
+    }
+    if (heardMatchInfo?.status === "none") {
+      return { status: "none" };
+    }
+    if (displayMatchItem) {
+      return { status: "match", name: displayMatch.name, scorePercent: displayMatchPercent };
+    }
+    if (lastMatchInfo?.status === "ambiguous") {
+      return { status: "ambiguous" };
+    }
+    if (lastMatchInfo?.status === "none") {
+      return { status: "none" };
+    }
+    return null;
+  })();
+  const detectedMatchItem = detectedMatch?.name ? lookup[detectedMatch.name] : null;
+  const detectedMatchPercent = detectedMatch?.scorePercent ?? null;
+  const detectedMatchPercentColor =
+    detectedMatchPercent == null ? "rgba(255,255,255,0.4)"
+      : detectedMatchPercent >= 95 ? "#22c55e"
+      : detectedMatchPercent >= 80 ? "#eab308"
+      : detectedMatchPercent >= 65 ? "#f97316"
+      : "#ef4444";
+  const displayMatchPercentColor =
+    displayMatchPercent == null ? "rgba(255,255,255,0.4)"
+      : displayMatchPercent >= 95 ? "#22c55e"
+      : displayMatchPercent >= 80 ? "#eab308"
+      : displayMatchPercent >= 65 ? "#f97316"
+      : "#ef4444";
   const matchPercentColor =
     shownMatchPercent == null ? "rgba(255,255,255,0.4)"
       : shownMatchPercent >= 95 ? "#22c55e"
@@ -455,16 +613,62 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
       : shownMatchPercent >= 65 ? "#f97316"
       : "#ef4444";
 
+  const renderGuessTray = () => (
+    <div style={{ display: "flex", justifyContent: "center", width: "100%" }}>
+      <div style={{ minHeight: "40px", maxHeight: "40px", minWidth: guessTrayMinWidth, maxWidth: "100%", overflowX: "auto", overflowY: "hidden", padding: "6px 10px", borderRadius: "10px", background: "#1f1f2d", border: "1px solid #303048", boxSizing: "border-box" }}>
+        <div style={{ minWidth: "100%", width: "max-content", display: "flex", gap: "4px", flexWrap: "nowrap", justifyContent: "center", alignItems: "center", margin: "0 auto" }}>
+          {(isHotlineOpen || guesses.length === 0) && (
+            <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.28)", letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+              {isHotlineOpen ? "Guessing disabled" : "Guess Path"}
+            </span>
+          )}
+          {!isHotlineOpen && guesses.length > 0 && (
+            <>
+              {guesses.map((g, i) => {
+                const gc = lookup[g.color];
+                const isCorrect = g.color === target?.name;
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: "3px" }}>
+                    {i > 0 && <span style={{ color: "rgba(255,255,255,0.18)", fontSize: "0.55rem" }}>{">"}</span>}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 7px", borderRadius: "8px", background: isCorrect ? gc?.hex + "44" : gc?.hex + "22", border: `1px solid ${isCorrect ? gc?.hex : gc?.hex + "66"}`, color: gc?.hex, whiteSpace: "nowrap", minWidth: "30px" }}>
+                      <span style={{ fontSize: g.color === "Oval" ? "0.6rem" : "0.74rem", lineHeight: 1, color: isCorrect ? gc?.hex : "#ffffff", filter: isCorrect ? `drop-shadow(0 0 4px ${gc?.hex})` : "none" }}>{gc?.symbol}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: "'Georgia', serif", background: bg, transition: "background 0.25s", overflowX: "hidden" }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: "'Georgia', serif", background: bg, transition: "background 0.25s", overflowX: "hidden", position: "relative" }}>
       <div style={{ background: "#141420", padding: "14px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #1c1c28" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
           <div style={{ fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "1.2rem", fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", background: "linear-gradient(120deg, #93c5fd 0%, #a78bfa 40%, #e879f9 70%, #f9a8d4 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
-            {phase === "training" ? "Training Room" : "Test Phase"}
+            Mindsight
           </div>
+          {phase === "test" && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.82rem", fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c9c3e5", background: "#111118", border: "1px solid #3a3a55", borderRadius: "999px", padding: "5px", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)" }}>
+              <button
+                onClick={() => toggleHotline(false)}
+                style={{ background: !isHotlineOpen ? "#2b2b44" : "transparent", border: "1px solid " + (!isHotlineOpen ? "#93c5fd66" : "transparent"), borderRadius: "999px", padding: "7px 14px", cursor: "pointer", color: !isHotlineOpen ? "#f0ece4" : "rgba(201,195,229,0.65)", fontFamily: "inherit", letterSpacing: "0.14em", textTransform: "uppercase", boxShadow: !isHotlineOpen ? "0 0 0 1px rgba(147,197,253,0.10), 0 8px 18px rgba(59,130,246,0.10)" : "none" }}
+              >
+                Test
+              </button>
+              <button
+                onClick={() => toggleHotline(true)}
+                style={{ background: isHotlineOpen ? "#3b2a06" : "transparent", border: "1px solid " + (isHotlineOpen ? "#fbbf24aa" : "transparent"), borderRadius: "999px", padding: "7px 14px", cursor: "pointer", color: isHotlineOpen ? "#fde68a" : "rgba(201,195,229,0.65)", fontFamily: "inherit", letterSpacing: "0.14em", textTransform: "uppercase", boxShadow: isHotlineOpen ? "0 0 0 1px rgba(251,191,36,0.18), 0 8px 18px rgba(245,158,11,0.10)" : "none" }}
+              >
+                Training
+              </button>
+            </div>
+          )}
           {phase === "test" && <div style={{ fontSize: "0.7rem", color: "#6060a0" }}>{name}</div>}
         </div>
-        <button onClick={onBack} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "8px 20px", cursor: "pointer", fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", boxShadow: "0 2px 16px #7c3aed55" }}>← Setup</button>
+        <button onClick={handleBackToSetup} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "8px 20px", cursor: "pointer", fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", boxShadow: "0 2px 16px #7c3aed55" }}>← Setup</button>
       </div>
 
       <div style={{ flex: 1, display: "flex", alignItems: "stretch", justifyContent: "center", width: "100%" }}>
@@ -491,14 +695,16 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
         </div>
       </div>
 
-      <div style={{ background: "#141420", padding: "16px 24px 18px", borderTop: "1px solid #1c1c28", display: "flex", flexDirection: "column", gap: "8px" }}>
-        {phase === "test" && <div style={{ display: "flex", justifyContent: "center" }}>
+      <div style={{ background: stageBackground, padding: "16px 24px 18px", display: "flex", flexDirection: "column", gap: "8px", position: "sticky", bottom: 0, zIndex: 30, transition: "background 0.25s" }}>
+        {false && phase === "test" && <div style={{ display: "flex", justifyContent: "center" }}>
           <div style={{ minHeight: "40px", maxHeight: "40px", minWidth: guessTrayMinWidth, maxWidth: "100%", overflowX: "auto", overflowY: "hidden", padding: "6px 10px", borderRadius: "10px", background: "#1f1f2d", border: "1px solid #303048", boxSizing: "border-box" }}>
             <div style={{ minWidth: "100%", width: "max-content", display: "flex", gap: "4px", flexWrap: "nowrap", justifyContent: "center", alignItems: "center", margin: "0 auto" }}>
-            {phase === "test" && guesses.length === 0 && (
-              <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.28)", letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Guess Path</span>
+            {phase === "test" && (isHotlineOpen || guesses.length === 0) && (
+              <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.28)", letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                {isHotlineOpen ? "Guessing disabled" : "Guess Path"}
+              </span>
             )}
-            {phase === "test" && guesses.length > 0 && (
+            {phase === "test" && !isHotlineOpen && guesses.length > 0 && (
               <>
                 {guesses.map((g, i) => {
                   const gc = lookup[g.color];
@@ -519,19 +725,47 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
           </div>
         </div>}
 
-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "center" }}>
-          {displayItems.map((c, i) => {
-            const isActive = i === itemIdx;
-            return (
-              <button key={c.name} onClick={() => {
-                setItemIdx(i);
-                speak(c.name);
-              }} style={{ display: "flex", alignItems: "center", gap: "5px", padding: "5px 10px", borderRadius: "6px", background: isActive ? c.hex + "44" : "#252535", border: `1px solid ${isActive ? c.hex : "#3a3a55"}`, transition: "all 0.15s", cursor: "pointer", fontFamily: "inherit", outline: "none" }}>
-                <span style={{ fontSize: c.name === "Oval" ? "0.72rem" : "0.85rem", lineHeight: 1, color: isActive ? c.hex : "#ffffff", filter: isActive ? `drop-shadow(0 0 4px ${c.hex})` : "none" }}>{c.symbol}</span>
-                <span style={{ fontSize: "0.72rem", color: isActive ? "white" : "rgba(255,255,255,0.8)" }}>{c.name}</span>
-              </button>
-            );
-          })}
+        <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+          <div style={{ width: "fit-content", maxWidth: "980px", overflowX: "auto", borderRadius: "16px", border: "1px solid rgba(255,255,255,0.18)", background: "rgba(17,17,24,0.92)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)", padding: "6px" }}>
+            <div style={{ display: "flex", flexWrap: "nowrap", width: "max-content", gap: "6px" }}>
+              {displayItems.map((c, i) => {
+                const isActive = i === itemIdx;
+                const activeBg = "rgba(255,255,255,0.08)";
+                const inactiveBg = "rgba(255,255,255,0.03)";
+
+                return (
+                  <button
+                    key={c.name}
+                    onClick={() => {
+                      setItemIdx(i);
+                      speak(c.name);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      padding: "9px 14px",
+                      borderRadius: "12px",
+                      background: isActive ? activeBg : inactiveBg,
+                      border: isActive ? "1px solid rgba(255,255,255,0.26)" : "1px solid rgba(255,255,255,0.14)",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      outline: "none",
+                      whiteSpace: "nowrap",
+                      transition: "background 0.15s, border-color 0.15s",
+                    }}
+                  >
+                    <span style={{ fontSize: c.name === "Oval" ? "0.78rem" : "0.92rem", lineHeight: 1, color: "#ffffff", filter: isActive ? `drop-shadow(0 0 4px ${c.hex}aa)` : "none" }}>
+                      {c.symbol}
+                    </span>
+                    <span style={{ fontSize: "0.82rem", color: "#ffffff", opacity: isActive ? 1 : 0.78, fontWeight: isActive ? 700 : 500, letterSpacing: "0.04em" }}>
+                      {c.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: "8px" }}>
@@ -539,13 +773,10 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
             {phase === "training" && (
               <button onClick={onInstructions} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "8px 20px", cursor: "pointer", fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", boxShadow: "0 2px 16px #7c3aed55" }}>← Instructions</button>
             )}
-            {phase === "test" && (
-              <button onClick={() => { pendingConfirmationRef.current = null; setPendingConfirmation(null); setHeardPhrase(""); setPhase("training"); setGuesses([]); setSlotIdx(0); setResults([]); resultsRef.current = []; setDone(false); setItemIdx(0); speak("Training room."); }} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "8px 20px", cursor: "pointer", fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", boxShadow: "0 2px 16px #7c3aed55" }}>← Training</button>
-            )}
           </div>
 
           <div style={{ display: "flex", justifyContent: "center" }}>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", background: "#252535", border: "1px solid #3a3a55", borderRadius: "10px", padding: "10px 16px", fontFamily: "inherit", minWidth: "260px" }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", background: "#252535", border: "1px solid #3a3a55", borderRadius: "10px", padding: "10px 16px", fontFamily: "inherit", minWidth: "320px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%" }}>
               <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", color: micStatusColor, width: "28px", height: "28px", borderRadius: "999px", background: micIsListening ? "#f472b61a" : "transparent", boxShadow: micIsListening ? "0 0 0 2px #f472b633, 0 0 18px #f472b644" : "none", animation: micIsListening ? "mindsightMicPulse 1.2s ease-in-out infinite" : "none", flexShrink: 0 }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -560,7 +791,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
                   border: "1px solid #3a3a55",
                   borderRadius: "10px",
                   padding: "8px 10px",
-                  color: heardPhrase ? "#f0ece4" : "rgba(255,255,255,0.28)",
+                  color: heardPhrase ? "#f0ece4" : "rgba(255,255,255,0.40)",
                   fontSize: "0.72rem",
                   lineHeight: 1.2,
                   whiteSpace: "nowrap",
@@ -575,41 +806,75 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
                 <>
                   <span style={{ width: "2px", height: "18px", background: "rgba(255,255,255,0.4)", margin: "0 4px" }} />
                   <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.1em", textTransform: "uppercase" }}>Card</span>
-                  <span style={{ fontSize: "0.9rem", color: "#ffffff", fontWeight: 600 }}>{slotIdx + 1} of {slots.length}</span>
+                  <span style={{ fontSize: "0.9rem", color: "#ffffff", fontWeight: 600, filter: isHotlineOpen ? "blur(3px)" : "none", opacity: isHotlineOpen ? 0.6 : 1 }}>{slotIdx + 1} of {slots.length}</span>
+                  <span style={{ width: "2px", height: "18px", background: "rgba(255,255,255,0.4)", margin: "0 4px" }} />
+                  {detectedMatch?.status === "ambiguous" ? (
+                    <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.55)", letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                      Ambiguous
+                    </span>
+                  ) : detectedMatchItem ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}>
+                      <span style={{ fontSize: detectedMatchItem.name === "Oval" ? "0.78rem" : "0.95rem", lineHeight: 1, color: "#f5f7fb", filter: `drop-shadow(0 0 6px ${detectedMatchItem.hex}55)` }}>
+                        {detectedMatchItem.symbol}
+                      </span>
+                      <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#ffffff", letterSpacing: "0.04em" }}>
+                        {detectedMatchItem.name}
+                      </span>
+                      {detectedMatchPercent != null && (
+                        <span style={{ fontSize: "0.72rem", fontWeight: 900, color: detectedMatchPercentColor, letterSpacing: "0.02em" }}>
+                          {detectedMatchPercent}%
+                        </span>
+                      )}
+                    </span>
+                  ) : heardPhrase ? (
+                    <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.55)", letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                      No match
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.28)", letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                      Ready
+                    </span>
+                  )}
                 </>
               )}
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", minHeight: "20px" }}>
-                {shownMatchItem ? (
-                  <>
-                    <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                      {pendingConfirmation ? "Is it this" : "Match"}
-                    </span>
-                    <span style={{ fontSize: shownMatchName === "Oval" ? "0.82rem" : "1rem", lineHeight: 1, color: "#f5f7fb", filter: `drop-shadow(0 0 6px ${shownMatchItem.hex}55)` }}>
-                      {shownMatchItem.symbol}
-                    </span>
-                    {shownMatchPercent != null && (
-                      <span style={{ fontSize: "0.82rem", fontWeight: 800, color: matchPercentColor, letterSpacing: "0.02em" }}>
-                        {shownMatchPercent}%
+              {phase === "test" ? (
+                renderGuessTray()
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", minHeight: "20px" }}>
+                  {shownMatchItem ? (
+                    <>
+                      <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                        {pendingConfirmation ? "Is it this" : "Match"}
                       </span>
-                    )}
-                  </>
-                ) : heardMatchInfo?.status === "ambiguous" ? (
-                  <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.55)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Ambiguous</span>
-                ) : (
-                  <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.28)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Ready</span>
-                )}
-              </div>
+                      <span style={{ fontSize: shownMatchName === "Oval" ? "0.82rem" : "1rem", lineHeight: 1, color: "#f5f7fb", filter: `drop-shadow(0 0 6px ${shownMatchItem.hex}55)` }}>
+                        {shownMatchItem.symbol}
+                      </span>
+                      {shownMatchPercent != null && (
+                        <span style={{ fontSize: "0.82rem", fontWeight: 800, color: matchPercentColor, letterSpacing: "0.02em" }}>
+                          {shownMatchPercent}%
+                        </span>
+                      )}
+                    </>
+                  ) : heardMatchInfo?.status === "ambiguous" ? (
+                    <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.55)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Ambiguous</span>
+                  ) : heardPhrase ? (
+                    <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.55)", letterSpacing: "0.08em", textTransform: "uppercase" }}>No match</span>
+                  ) : (
+                    <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.28)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Ready</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "4px", flexWrap: "wrap", alignItems: "center" }}>
             {phase === "training" && (
-              <button onClick={() => { pendingConfirmationRef.current = null; setPendingConfirmation(null); setHeardPhrase(""); setPhase("test"); setItemIdx(0); speak("Test started."); }} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "9px 24px", fontSize: "0.82rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>Begin Test →</button>
+              <button onClick={beginTestPhase} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "9px 24px", fontSize: "0.82rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>Begin Test →</button>
             )}
             {done && (
-              <button onClick={() => onFinish(buildSoloSessionPayload({ name, category, activeOptions: items, guessPolicy, deckPolicy, completedResults: results }))} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "9px 24px", fontSize: "0.82rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 2px 20px #7c3aed88", animation: "pulse 1.5s ease-in-out infinite" }}>Results →</button>
+              <button onClick={finishSession} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "9px 24px", fontSize: "0.82rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 2px 20px #7c3aed88", animation: "pulse 1.5s ease-in-out infinite" }}>Results →</button>
             )}
           </div>
         </div>

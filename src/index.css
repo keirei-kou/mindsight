@@ -74,6 +74,30 @@ html {
   background: #141420;
 }
 
+html {
+  scrollbar-color: #3a3a55 #141420;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #141420;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #3a3a55;
+  border-radius: 999px;
+  border: 2px solid #141420;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #4c4c70;
+}
+
 @keyframes mindsightMicPulse {
   0% { transform: scale(1); box-shadow: 0 0 0 2px #f472b633, 0 0 18px #f472b644; }
   50% { transform: scale(1.08); box-shadow: 0 0 0 4px #f472b644, 0 0 26px #f472b677; }

@@ -1,6 +1,7 @@
 import { SOLO_TRIAL_HEADERS, buildSoloTrialRows } from "./csv.js";
 
 export const TRIALS_SHEET_TITLE = "Trials";
+const OPTIONAL_SOLO_HEADERS = ["run_id"];
 
 async function fetchGoogleSheetsJson(url, accessToken, options = {}) {
   const response = await fetch(url, {
@@ -110,7 +111,8 @@ function validateTrialsSheetHeaders(existingHeaders) {
     };
   }
 
-  const missingHeaders = SOLO_TRIAL_HEADERS.filter((requiredHeader) => !normalizedHeaders.includes(requiredHeader));
+  const requiredHeaders = SOLO_TRIAL_HEADERS.filter((header) => !OPTIONAL_SOLO_HEADERS.includes(header));
+  const missingHeaders = requiredHeaders.filter((requiredHeader) => !normalizedHeaders.includes(requiredHeader));
 
   return {
     shouldInitialize: false,
@@ -161,13 +163,20 @@ export async function appendSoloTrials(accessToken, spreadsheetId, sessionData) 
     return { appendedRowCount: 0 };
   }
 
+  const normalizedHeaders = existingHeaders.map((header) => String(header || "").trim()).filter(Boolean);
+  const headerOrder = normalizedHeaders.length > 0 ? normalizedHeaders : SOLO_TRIAL_HEADERS;
+  const mappedTrialRows = trialRows.map((rowValues) => {
+    const rowObject = Object.fromEntries(SOLO_TRIAL_HEADERS.map((header, index) => [header, rowValues[index] ?? ""]));
+    return headerOrder.map((header) => rowObject[header] ?? "");
+  });
+
   await fetchGoogleSheetsJson(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${TRIALS_SHEET_TITLE}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
     accessToken,
     {
       method: "POST",
       body: JSON.stringify({
-        values: trialRows,
+        values: mappedTrialRows,
       }),
     }
   );

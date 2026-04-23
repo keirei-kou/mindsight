@@ -144,7 +144,7 @@ function getWeightedScorePerTrial(correctGuessIndex, optionCount) {
     return null;
   }
 
-  return (optionCount + 1 - correctGuessIndex) / optionCount;
+  return clampRatio((optionCount + 1 - correctGuessIndex) / optionCount);
 }
 
 function getTrialDisplayScore(trial, guessPolicy) {
@@ -235,6 +235,7 @@ export function buildSessionAnalytics({
   guessPolicy,
 }) {
   const normalizedTrials = Array.isArray(trials) ? trials : [];
+  const isOneShot = guessPolicy === GUESS_POLICIES.ONE_SHOT;
   const correctGuessIndexes = getCorrectGuessIndexes(normalizedTrials);
   const firstGuessAccuracy = getFirstGuessAccuracy(normalizedTrials);
   const firstGuessChanceBaseline = getFirstGuessChanceBaseline(optionCount);
@@ -245,15 +246,17 @@ export function buildSessionAnalytics({
     firstGuessAccuracy: roundTo(firstGuessAccuracy),
     firstGuessChanceBaseline: roundTo(firstGuessChanceBaseline),
     zScore: roundTo(getZScore(normalizedTrials, optionCount)),
-    averageGuessPosition: roundTo(getAverage(correctGuessIndexes)),
+    averageGuessPosition: isOneShot ? null : roundTo(getAverage(correctGuessIndexes)),
     averageGuessPositionBaseline: roundTo(averageGuessPositionBaseline),
-    guessPositionStdDev: roundTo(getStandardDeviation(correctGuessIndexes)),
-    weightedScore: roundTo(getWeightedScore(normalizedTrials, optionCount, guessPolicy)),
-    perOptionStats: buildPerOptionStats(optionValues, normalizedTrials).map((stat) => ({
-      ...stat,
-      firstGuessAccuracy: roundTo(stat.firstGuessAccuracy),
-      averageGuessPosition: roundTo(stat.averageGuessPosition),
-    })),
+    guessPositionStdDev: isOneShot ? null : roundTo(getStandardDeviation(correctGuessIndexes)),
+    weightedScore: isOneShot ? null : roundTo(getWeightedScore(normalizedTrials, optionCount, guessPolicy)),
+    perOptionStats: buildPerOptionStats(optionValues, normalizedTrials).map((stat) => {
+      return {
+        ...stat,
+        firstGuessAccuracy: roundTo(stat.firstGuessAccuracy),
+        averageGuessPosition: isOneShot ? null : roundTo(stat.averageGuessPosition),
+      };
+    }),
   };
 }
 
@@ -263,6 +266,7 @@ export function buildTrialTimelinePoints(trials, guessPolicy) {
   }
 
   let elapsedMs = 0;
+  let firstGuessHitCount = 0;
 
   return trials
     .map((trial, index) => {
@@ -271,7 +275,15 @@ export function buildTrialTimelinePoints(trials, guessPolicy) {
         elapsedMs += durationMs;
       }
 
-      const score = getTrialDisplayScore(trial, guessPolicy);
+      const perTrialScore = getTrialDisplayScore(trial, guessPolicy);
+      const firstGuessCorrect = Boolean(trial.firstGuessCorrect);
+      if (firstGuessCorrect) {
+        firstGuessHitCount += 1;
+      }
+
+      const score = guessPolicy === GUESS_POLICIES.ONE_SHOT
+        ? clampRatio(firstGuessHitCount / (index + 1))
+        : perTrialScore;
 
       return {
         x: elapsedMs,
@@ -279,9 +291,10 @@ export function buildTrialTimelinePoints(trials, guessPolicy) {
         card: trial.cardIndex ?? index + 1,
         targetValue: trial.targetValue ?? null,
         firstGuess: trial.firstGuess ?? null,
-        firstGuessCorrect: Boolean(trial.firstGuessCorrect),
+        firstGuessCorrect,
         correctGuessIndex: trial.correctGuessIndex ?? null,
         guessCount: trial.guessCount ?? 0,
+        perTrialScore: perTrialScore != null ? perTrialScore * 100 : null,
       };
     })
     .filter((point) => point.x > 0 && point.y != null);

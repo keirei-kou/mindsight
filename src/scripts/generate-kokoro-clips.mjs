@@ -4,15 +4,18 @@ import { fileURLToPath } from "node:url";
 import { KokoroTTS } from "kokoro-js";
 
 const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
-const VOICE = "af_heart";
+const VOICE = process.env.KOKORO_VOICE || "af_heart";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const outDir = path.resolve(__dirname, "../../public/audio/af_heart");
+const outDir = process.env.KOKORO_OUTDIR
+  ? path.resolve(__dirname, process.env.KOKORO_OUTDIR)
+  : path.resolve(__dirname, `../../public/audio/${VOICE}`);
 
 const clips = [
   ["training-room", "Training room."],
   ["test-started", "Test started."],
+  ["test-resumed", "Test resumed."],
   ["correct", "Correct!"],
   ["different", "Different."],
   ["skipped", "Skipped."],
@@ -127,10 +130,105 @@ const clips = [
   ["different-the-answer-was-cross", "Different. The answer was Cross."],
 ];
 
-const requestedSlugs = new Set(process.argv.slice(2));
+function getClipSubfolder(slug) {
+  if (slug.startsWith("different-the-answer-was-")) return "confirmations";
+  if (slug.startsWith("did-you-say-") || slug.startsWith("say-")) return "confirmations";
+  if (slug.endsWith("-card")) return "cards";
+  if ([
+    "training-room",
+    "test-started",
+    "test-resumed",
+    "correct",
+    "different",
+    "skipped",
+    "test-finished-press-space-to-go-to-results",
+    "test-finished-press-space-or-say-results-to-go-to-the-results-page",
+    "results-go-to-results",
+    "results",
+  ].includes(slug)) return "prompts";
+  return "items";
+}
+
+function getPackSlugs(pack) {
+  const normalized = String(pack || "").trim().toLowerCase();
+  if (!normalized || normalized === "full" || normalized === "all") {
+    return clips.map(([slug]) => slug);
+  }
+
+  if (normalized === "hotline") {
+    return clips
+      .map(([slug]) => slug)
+      .filter((slug) => slug === "training-room" || getClipSubfolder(slug) === "items");
+  }
+
+  if (["items", "prompts", "cards", "confirmations"].includes(normalized)) {
+    return clips
+      .map(([slug]) => slug)
+      .filter((slug) => getClipSubfolder(slug) === normalized);
+  }
+
+  throw new Error(`Unknown pack "${pack}". Use: hotline, items, prompts, cards, confirmations, full`);
+}
+
+const argv = process.argv.slice(2);
+let pack = process.env.KOKORO_PACK || "";
+let showHelp = false;
+const slugsFromArgs = [];
+for (let index = 0; index < argv.length; index += 1) {
+  const arg = argv[index];
+  if (arg === "--help" || arg === "-h") {
+    showHelp = true;
+    continue;
+  }
+  if (arg === "--pack") {
+    pack = argv[index + 1] || "";
+    index += 1;
+    continue;
+  }
+  if (arg.startsWith("--pack=")) {
+    pack = arg.slice("--pack=".length);
+    continue;
+  }
+  slugsFromArgs.push(arg);
+}
+
+const requestedSlugs = slugsFromArgs.length > 0 ? new Set(slugsFromArgs) : (
+  pack ? new Set(getPackSlugs(pack)) : null
+);
 
 async function main() {
+  if (showHelp) {
+    console.log([
+      "Usage:",
+      "  node src/scripts/generate-kokoro-clips.mjs [--pack <name>] [slug ...]",
+      "",
+      "Packs:",
+      "  hotline        training-room + all option items (fast)",
+      "  items          option items only",
+      "  prompts        prompt clips only",
+      "  cards          card-ordinal clips only",
+      "  confirmations  confirmation clips only",
+      "  full           everything (slow)",
+      "",
+      "Env:",
+      "  KOKORO_VOICE=<voice_id>",
+      "  KOKORO_OUTDIR=<output_directory>",
+      "  KOKORO_PACK=<pack_name>",
+    ].join("\n"));
+    return;
+  }
+
   await mkdir(outDir, { recursive: true });
+
+  const selectedClips = requestedSlugs
+    ? clips.filter(([slug]) => requestedSlugs.has(slug))
+    : clips;
+
+  if (requestedSlugs && selectedClips.length !== requestedSlugs.size) {
+    const foundSlugs = new Set(selectedClips.map(([slug]) => slug));
+    const missingSlugs = [...requestedSlugs].filter((slug) => !foundSlugs.has(slug));
+    throw new Error(`Unknown clip slug(s): ${missingSlugs.join(", ")}`);
+  }
 
   console.log(`Loading Kokoro model ${MODEL_ID}...`);
   const tts = await KokoroTTS.from_pretrained(MODEL_ID, {
@@ -138,29 +236,14 @@ async function main() {
     device: "cpu",
   });
 
-  const selectedClips = requestedSlugs.size > 0
-    ? clips.filter(([slug]) => requestedSlugs.has(slug))
-    : clips;
-
-  if (requestedSlugs.size > 0 && selectedClips.length !== requestedSlugs.size) {
-    const foundSlugs = new Set(selectedClips.map(([slug]) => slug));
-    const missingSlugs = [...requestedSlugs].filter((slug) => !foundSlugs.has(slug));
-    throw new Error(`Unknown clip slug(s): ${missingSlugs.join(", ")}`);
+  if (requestedSlugs && slugsFromArgs.length === 0) {
+    console.log(`Pack: ${pack}`);
   }
-
   console.log(`Writing ${selectedClips.length} clips to ${outDir}`);
   for (const [slug, text] of selectedClips) {
     console.log(`Generating ${slug}.wav`);
     const audio = await tts.generate(text, { voice: VOICE });
-    const subfolder = slug.startsWith("different-the-answer-was-") ? "confirmations" : (
-      slug.startsWith("did-you-say-") || slug.startsWith("say-") ? "confirmations" : (
-        slug.endsWith("-card") ? "cards" : (
-          ["training-room", "test-started", "correct", "different", "skipped", "test-finished-press-space-to-go-to-results", "test-finished-press-space-or-say-results-to-go-to-the-results-page", "results-go-to-results", "results"].includes(slug)
-            ? "prompts"
-            : "items"
-        )
-      )
-    );
+    const subfolder = getClipSubfolder(slug);
     const targetDir = path.join(outDir, subfolder);
     await mkdir(targetDir, { recursive: true });
     await audio.save(path.join(targetDir, `${slug}.wav`));
