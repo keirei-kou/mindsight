@@ -19,7 +19,8 @@ Solo-mode foundations are mostly in place:
 - Deck generation lives in [deck.js](./deck.js).
 - Analytics math lives in [analytics.js](./analytics.js).
 - Solo payload shaping lives in [soloSessionPayload.js](./soloSessionPayload.js).
-- Solo CSV/Google Sheets row shape is controlled by [csv.js](./csv.js), especially `SOLO_TRIAL_HEADERS`.
+- Solo schema mapping lives in [schemaRegistry.js](./schemaRegistry.js).
+- Solo CSV/Google Sheets row shape is controlled by [csv.js](./csv.js), with dot-style exports from the schema registry.
 - Google Sheets append/read behavior lives in [googleSheets.js](./googleSheets.js).
 - Historical Google Sheets rebuild/backfill behavior lives in [googleSheetHistory.js](./googleSheetHistory.js).
 
@@ -42,6 +43,11 @@ Recent completed work:
   - `training_overlay_opens`
   - `training_overlay_ms`
 - Added interrupted-session recovery snapshot.
+- Added PsiLabs dot-style schema registry with legacy Mindsight aliases.
+- CSV solo import accepts legacy v0 and dot v1 fields.
+- CSV solo export writes dot v1 fields.
+- Google Sheets read/append migrates recognized Mindsight v0/mixed sheets to dot v1 before use.
+- Google Sheets history rebuild reads dot v1 fields directly, with legacy fallback through the registry.
 
 ## Current Solo Sheet Schema
 Current `SOLO_TRIAL_HEADERS` fields:
@@ -726,16 +732,19 @@ Mode-specific storage:
   - Store/use all metrics.
 
 ## Google Sheets Compatibility Rules
-Current desired behavior:
-- New sheet: initialize header row from `SOLO_TRIAL_HEADERS`.
-- Existing sheet: read header row and append values by matching header name.
-- Missing optional columns may be appended to the sheet header.
-- Missing required columns should still produce a clear error.
+Current implemented behavior:
+- New sheet: initialize header row from `PSILABS_DOT_V1_HEADERS`.
+- Existing recognized Mindsight v0/mixed sheet: migrate rows to dot v1 order before reading/appending.
+- Append writes dot v1 rows.
+- Missing required columns still produce a clear error.
+- Unknown columns block automatic migration so data is not silently discarded.
+- Non-Mindsight protocol rows block automatic migration so protocols are not mixed accidentally.
 
 Important files:
-- `SOLO_TRIAL_HEADERS`: [csv.js](./csv.js)
-- row output order: `buildSoloTrialRows()` in [csv.js](./csv.js)
-- existing-sheet header matching: [googleSheets.js](./googleSheets.js)
+- `PSILABS_DOT_V1_HEADERS`: [schemaRegistry.js](./schemaRegistry.js)
+- legacy aliases and defaults: [schemaRegistry.js](./schemaRegistry.js)
+- row output order: `buildDotV1SoloTrialRows()` in [csv.js](./csv.js)
+- sheet migration/read/append: [googleSheets.js](./googleSheets.js)
 - historical rebuild/backfill: [googleSheetHistory.js](./googleSheetHistory.js)
 
 ## Schema Versioning And Migration Policy
@@ -753,16 +762,17 @@ Recommended future constants/helpers:
 - `FIELD_ALIASES`
 
 Rules for new CSVs / new Google Sheets:
-- Use the latest deterministic field order from `SOLO_TRIAL_HEADERS` or its future schema equivalent.
+- Use the latest deterministic field order from `PSILABS_DOT_V1_HEADERS` or its future schema equivalent.
 - Include all current fields.
 - Populate default values where appropriate.
 
 Rules for existing Google Sheets:
 - Read the header row first.
-- Append values by matching header name, not column position.
-- If optional fields are missing, append those headers automatically when safe.
+- Analyze headers through the schema registry.
+- Migrate recognized Mindsight v0/mixed sheets to dot v1 before read/append during the early v0 -> v1 phase.
 - If required fields are missing, show a clear error explaining which columns are missing.
-- Do not silently overwrite or reorder a user's existing sheet unless explicitly requested.
+- If unknown fields or non-Mindsight protocol rows are present, block migration with a clear error.
+- Future UX should ask before physical sheet migration and show progress.
 
 Rules for old CSV imports:
 - Missing computable fields should be backfilled.
@@ -820,16 +830,16 @@ Future migration workflow:
 ## Recommended Immediate Next Steps
 Do these one at a time:
 
-1. Create a schema registry for dot-style PsiLabs fields:
+- [x] Create a schema registry for dot-style PsiLabs fields:
    - field order
    - required fields
    - optional fields
    - defaults
    - temporary aliases from old flat Mindsight names
-2. Add a row mapper that exports current Mindsight payloads into generic dot-style rows.
-3. Update CSV export/import to use the schema registry and row mapper.
-4. Update Google Sheets append/read header handling to use the schema registry.
-5. Add the most important new dot-style fields with conservative defaults:
+- [x] Add a row mapper that exports current Mindsight payloads into generic dot-style rows.
+- [x] Update CSV export/import to use the schema registry and row mapper.
+- [x] Update Google Sheets append/read header handling to use the schema registry.
+- [x] Add the most important new dot-style fields with conservative defaults:
    - `schema.version`
    - `session.is_test`
    - `rng.method`
@@ -840,15 +850,17 @@ Do these one at a time:
    - `analysis.excluded`
    - `analysis.exclusion_reason`
    - `context.input_method`
-6. Add protocol/voice-note fields without building full voice note UX yet:
+- [x] Add protocol/voice-note fields without building full voice note UX yet:
    - `protocol.label`
    - `protocol.tags`
    - `protocol.notes`
    - `notes.voice_text`
    - `notes.voice_source`
-7. Verify CSV export/import and Google Sheets append behavior.
-8. Let user finalize column order.
-9. Run manual solo testing across:
+- [ ] Add explicit Google Sheets schema upgrade confirmation/progress UX.
+- [x] Verify CSV export/import with local smoke tests.
+- [ ] Verify Google Sheets append/read behavior manually against a live sheet.
+- [ ] Let user finalize column order.
+- [ ] Run manual solo testing across:
    - `repeatUntilCorrect + balancedDeck`
    - `repeatUntilCorrect + independentDraws`
    - `oneShot + balancedDeck`

@@ -1,19 +1,14 @@
-import { SOLO_TRIAL_HEADERS, buildSoloTrialRows } from "./csv.js";
+import { buildDotV1SoloTrialRows } from "./csv.js";
+import {
+  PSILABS_DOT_V1_HEADERS,
+  analyzeSoloHeaders,
+  convertNormalizedSoloRowToLegacy,
+  denormalizeSoloRow,
+  normalizeSoloRow,
+} from "./schemaRegistry.js";
 
 export const TRIALS_SHEET_TITLE = "Trials";
-const OPTIONAL_SOLO_HEADERS = [
-  "run_id",
-  "trial_started_at",
-  "trial_ended_at",
-  "trial_started_at_estimated",
-  "trial_ended_at_estimated",
-  "time_of_day_tag",
-  "time_of_day_is_estimated",
-  "notes",
-  "training_overlay_opens",
-  "training_overlay_ms",
-  "p_value",
-];
+const MIGRATABLE_PROTOCOL_PHENOMENA = new Set(["", "mindsight"]);
 
 async function fetchGoogleSheetsJson(url, accessToken, options = {}) {
   const response = await fetch(url, {
@@ -123,12 +118,12 @@ function validateTrialsSheetHeaders(existingHeaders) {
     };
   }
 
-  const requiredHeaders = SOLO_TRIAL_HEADERS.filter((header) => !OPTIONAL_SOLO_HEADERS.includes(header));
-  const missingHeaders = requiredHeaders.filter((requiredHeader) => !normalizedHeaders.includes(requiredHeader));
+  const headerAnalysis = analyzeSoloHeaders(normalizedHeaders);
 
   return {
     shouldInitialize: false,
-    missingHeaders,
+    missingHeaders: headerAnalysis.missingRequiredHeaders,
+    headerAnalysis,
   };
 }
 
@@ -138,42 +133,69 @@ function mapRowsToObjects(headers, rows) {
   );
 }
 
-async function initializeTrialsSheetHeaders(accessToken, spreadsheetId) {
+async function clearTrialsSheetValues(accessToken, spreadsheetId) {
   await fetchGoogleSheetsJson(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${TRIALS_SHEET_TITLE}!1:1`)}?valueInputOption=RAW`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${TRIALS_SHEET_TITLE}!A1:ZZ`)}:clear`,
     accessToken,
     {
-      method: "PUT",
-      body: JSON.stringify({
-        values: [SOLO_TRIAL_HEADERS],
-      }),
+      method: "POST",
     }
   );
 }
 
-async function addMissingOptionalTrialsSheetHeaders(accessToken, spreadsheetId, existingHeaders) {
-  const normalizedHeaders = existingHeaders.map((header) => String(header || "").trim()).filter(Boolean);
-  const missingOptionalHeaders = SOLO_TRIAL_HEADERS.filter((header) => {
-    return OPTIONAL_SOLO_HEADERS.includes(header) && !normalizedHeaders.includes(header);
-  });
-
-  if (missingOptionalHeaders.length === 0) {
-    return normalizedHeaders;
-  }
-
-  const updatedHeaders = [...normalizedHeaders, ...missingOptionalHeaders];
+async function writeTrialsSheetValues(accessToken, spreadsheetId, values) {
   await fetchGoogleSheetsJson(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${TRIALS_SHEET_TITLE}!1:1`)}?valueInputOption=RAW`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${TRIALS_SHEET_TITLE}!A1`)}?valueInputOption=RAW`,
     accessToken,
     {
       method: "PUT",
-      body: JSON.stringify({
-        values: [updatedHeaders],
-      }),
+      body: JSON.stringify({ values }),
     }
   );
+}
 
-  return updatedHeaders;
+async function readTrialsSheetValueRows(accessToken, spreadsheetId) {
+  const result = await fetchGoogleSheetsJson(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${TRIALS_SHEET_TITLE}!A2:ZZ`)}`,
+    accessToken
+  );
+
+  return result?.values ?? [];
+}
+
+async function migrateTrialsSheetToDotV1(accessToken, spreadsheetId, existingHeaders) {
+  const normalizedHeaders = existingHeaders.map((header) => String(header || "").trim()).filter(Boolean);
+  const headerAnalysis = analyzeSoloHeaders(normalizedHeaders);
+
+  if (headerAnalysis.missingRequiredHeaders.length > 0) {
+    throw new Error(`Trials sheet is missing required columns: ${headerAnalysis.missingRequiredHeaders.join(", ")}`);
+  }
+
+  if (headerAnalysis.unknownHeaders.length > 0) {
+    throw new Error(`Trials sheet has columns this app does not know how to migrate yet: ${headerAnalysis.unknownHeaders.join(", ")}`);
+  }
+
+  if (headerAnalysis.isPreferredOrder) {
+    return PSILABS_DOT_V1_HEADERS;
+  }
+
+  const rows = await readTrialsSheetValueRows(accessToken, spreadsheetId);
+  const rowObjects = mapRowsToObjects(normalizedHeaders, rows);
+  const normalizedRows = rowObjects.map((rowObject) => normalizeSoloRow(rowObject));
+  const unsupportedProtocolRows = normalizedRows.filter((row) => {
+    return !MIGRATABLE_PROTOCOL_PHENOMENA.has(String(row["protocol.phenomenon"] || "").trim().toLowerCase());
+  });
+
+  if (unsupportedProtocolRows.length > 0) {
+    throw new Error("This sheet contains non-Mindsight protocol rows. Choose a Mindsight-only sheet before migration.");
+  }
+
+  const migratedRows = normalizedRows.map((row) => denormalizeSoloRow(row, PSILABS_DOT_V1_HEADERS));
+
+  await clearTrialsSheetValues(accessToken, spreadsheetId);
+  await writeTrialsSheetValues(accessToken, spreadsheetId, [PSILABS_DOT_V1_HEADERS, ...migratedRows]);
+
+  return PSILABS_DOT_V1_HEADERS;
 }
 
 export async function appendSoloTrials(accessToken, spreadsheetId, sessionData) {
@@ -190,24 +212,19 @@ export async function appendSoloTrials(accessToken, spreadsheetId, sessionData) 
   const headerValidation = validateTrialsSheetHeaders(existingHeaders);
 
   if (headerValidation.shouldInitialize) {
-    await initializeTrialsSheetHeaders(accessToken, spreadsheetId);
+    await writeTrialsSheetValues(accessToken, spreadsheetId, [PSILABS_DOT_V1_HEADERS]);
   } else if (headerValidation.missingHeaders.length > 0) {
     throw new Error(`Trials sheet is missing required columns: ${headerValidation.missingHeaders.join(", ")}`);
   }
 
-  const headerOrder = headerValidation.shouldInitialize
-    ? SOLO_TRIAL_HEADERS
-    : await addMissingOptionalTrialsSheetHeaders(accessToken, spreadsheetId, existingHeaders);
+  if (!headerValidation.shouldInitialize) {
+    await migrateTrialsSheetToDotV1(accessToken, spreadsheetId, existingHeaders);
+  }
 
-  const trialRows = buildSoloTrialRows(sessionData);
+  const trialRows = buildDotV1SoloTrialRows(sessionData);
   if (trialRows.length === 0) {
     return { appendedRowCount: 0 };
   }
-
-  const mappedTrialRows = trialRows.map((rowValues) => {
-    const rowObject = Object.fromEntries(SOLO_TRIAL_HEADERS.map((header, index) => [header, rowValues[index] ?? ""]));
-    return headerOrder.map((header) => rowObject[header] ?? "");
-  });
 
   await fetchGoogleSheetsJson(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${TRIALS_SHEET_TITLE}!A1`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
@@ -215,7 +232,7 @@ export async function appendSoloTrials(accessToken, spreadsheetId, sessionData) 
     {
       method: "POST",
       body: JSON.stringify({
-        values: mappedTrialRows,
+        values: trialRows,
       }),
     }
   );
@@ -246,13 +263,10 @@ export async function readTrialsSheetRows(accessToken, spreadsheetId) {
     throw new Error(`Trials sheet is missing required columns: ${headerValidation.missingHeaders.join(", ")}`);
   }
 
-  const headerOrder = await addMissingOptionalTrialsSheetHeaders(accessToken, spreadsheetId, existingHeaders);
-
-  const result = await fetchGoogleSheetsJson(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${TRIALS_SHEET_TITLE}!A2:ZZ`)}`,
-    accessToken
-  );
-
-  const rows = result?.values ?? [];
-  return mapRowsToObjects(headerOrder, rows);
+  const headerOrder = await migrateTrialsSheetToDotV1(accessToken, spreadsheetId, existingHeaders);
+  const rows = await readTrialsSheetValueRows(accessToken, spreadsheetId);
+  return mapRowsToObjects(headerOrder, rows).map((rowObject) => {
+    const normalizedRow = normalizeSoloRow(rowObject);
+    return { ...rowObject, ...convertNormalizedSoloRowToLegacy(normalizedRow) };
+  });
 }

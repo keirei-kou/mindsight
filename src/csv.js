@@ -3,6 +3,13 @@ import { buildSessionAnalytics, buildTrialRecord } from './analytics.js';
 import { buildGroupParticipantSummary, buildGroupRollupSummary } from './groupAnalytics.js';
 import { accuracyScore, patternLabel, proximityScore } from './utils.js';
 import { getTimeOfDayTag } from './timeOfDay.js';
+import {
+  PSILABS_DOT_V1_HEADERS,
+  analyzeSoloHeaders,
+  convertLegacySoloRowToDotV1Values,
+  convertNormalizedSoloRowToLegacy,
+  normalizeSoloRow,
+} from './schemaRegistry.js';
 
 export function slugifyCsvPart(value, fallback = "session") {
   return String(value || fallback)
@@ -243,19 +250,26 @@ export function buildSoloTrialRows(data) {
   });
 }
 
-export function buildSoloResultsCsv(data) {
-  const rows = buildSoloTrialRows(data).map((row) => row.map(toCsvCell).join(","));
+export function buildDotV1SoloTrialRows(data) {
+  return buildSoloTrialRows(data).map((rowValues) => {
+    const legacyRowObject = Object.fromEntries(SOLO_TRIAL_HEADERS.map((header, index) => [header, rowValues[index] ?? ""]));
+    return convertLegacySoloRowToDotV1Values(legacyRowObject);
+  });
+}
 
-  return [SOLO_TRIAL_HEADERS.join(","), ...rows].join("\n");
+export function buildSoloResultsCsv(data) {
+  const rows = buildDotV1SoloTrialRows(data).map((row) => row.map(toCsvCell).join(","));
+
+  return [PSILABS_DOT_V1_HEADERS.join(","), ...rows].join("\n");
 }
 
 export function buildSoloHistoryResultsCsv(sessions) {
   const normalizedSessions = Array.isArray(sessions) ? sessions : [];
   const rows = normalizedSessions
-    .flatMap((session) => buildSoloTrialRows(session))
+    .flatMap((session) => buildDotV1SoloTrialRows(session))
     .map((row) => row.map(toCsvCell).join(","));
 
-  return [SOLO_TRIAL_HEADERS.join(","), ...rows].join("\n");
+  return [PSILABS_DOT_V1_HEADERS.join(","), ...rows].join("\n");
 }
 
 function buildGroupRows(data) {
@@ -481,6 +495,25 @@ function splitPipe(value) {
     .filter(Boolean);
 }
 
+function looksLikeSoloTrialRows(rows) {
+  const first = rows[0] || {};
+  if ("participant_name" in first) return false;
+
+  const headerAnalysis = analyzeSoloHeaders(Object.keys(first));
+  return headerAnalysis.canNormalize || headerAnalysis.recognizedHeaders.length > 0;
+}
+
+function normalizeSoloRowsForImport(rows) {
+  if (!Array.isArray(rows) || rows.length === 0 || !looksLikeSoloTrialRows(rows)) {
+    return rows;
+  }
+
+  return rows.map((row) => {
+    const normalizedRow = normalizeSoloRow(row);
+    return { ...row, ...convertNormalizedSoloRowToLegacy(normalizedRow) };
+  });
+}
+
 function buildColorsForCategory(category, rows) {
   const categoryItems = CATEGORIES[category]?.items ?? [];
   if (!categoryItems.length) return [];
@@ -496,7 +529,7 @@ function buildColorsForCategory(category, rows) {
 }
 
 export function parseResultsCsvSummary(text) {
-  const rows = parseCsv(text);
+  const rows = normalizeSoloRowsForImport(parseCsv(text));
   if (!rows.length) throw new Error("CSV file is empty.");
 
   const first = rows[0];
@@ -536,7 +569,7 @@ export function parseResultsCsvSummary(text) {
 }
 
 export function parseSoloResultsCsv(text) {
-  const rows = parseCsv(text);
+  const rows = normalizeSoloRowsForImport(parseCsv(text));
   if (!rows.length) throw new Error("CSV file is empty.");
   if (!("name" in rows[0])) throw new Error("This does not look like a solo results CSV.");
 
