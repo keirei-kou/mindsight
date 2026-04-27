@@ -2,7 +2,7 @@
 
 > Active Development
 
-**Train intuition. Test claims. Track results. Explore consciousness with data.**
+**Train intuition. Test claims. Track results.**
 
 PsiLabs is an open-source platform for designing, running, and analyzing structured experiments related to anomalous perception, intuition training, blind testing, and consciousness-adjacent phenomena.
 
@@ -39,9 +39,8 @@ But most available tools are:
 - visually outdated
 - difficult to compare over time
 
-PsiLabs aims to build the platform people wish existed:
+**PsiLabs aims to build better tools for unusual questions**
 
-**serious tools for unusual questions.**
 
 ---
 
@@ -240,7 +239,7 @@ docs/     Internal UI and product rulebooks
 * social experiment modes
 * advanced analytics
 
-## Long Term
+## Possible Directions
 
 * remote viewing systems
 * psychokinesis measurement tools
@@ -294,4 +293,4 @@ Users should approach results thoughtfully and critically.
 
 Some questions deserve better tools.
 
-PsiLabs exists to build them.
+PsiLabs is an attempt to build them.
