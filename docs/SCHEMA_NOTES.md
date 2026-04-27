@@ -57,7 +57,9 @@ Current implementation notes:
 
 - New sheets initialize from `PSILABS_DOT_V1_HEADERS` in `src/schemaRegistry.js`.
 - CSV/Google Sheets row output is built through `buildDotV1SoloTrialRows()` in `src/csv.js`.
-- Existing recognized Mindsight v0/mixed sheets migrate to dot v1 before read/append.
+- Existing non-empty Google Sheets append by matching the live header row, not by assuming canonical physical column position.
+- The app should not physically reorder or rewrite an existing sheet during append; physical migration belongs behind explicit upgrade UX.
+- Existing recognized Mindsight v0/mixed sheets read through aliases/backfillers.
 - Google Sheets history rebuild reads dot v1 fields directly, with legacy fallback through the schema registry.
 
 ## Dot-Style Direction
@@ -275,6 +277,8 @@ Implemented or targeted dot-style fields include:
 - `notes.voice_text`
 - `notes.voice_source`
 - `context.input_method`
+Future archive metadata candidates:
+
 - `archive.status`
 - `archive.google_sheet_id`
 - `archive.synced_at`
@@ -377,94 +381,88 @@ Secondary metrics:
 - `guess_position_std_dev`
 - `weighted_score`
 
-## Desired Column Grouping
+## Approved Canonical Dot V1 Solo Header Order
 
-Do not reorder until schema completeness is settled. Once final fields are added, reorder headers and matching row values together.
+This is the generated order for `PSILABS_DOT_V1_FIELDS` / `PSILABS_DOT_V1_HEADERS`, new blank Google Sheets, CSV exports, and canonical denormalization when no live sheet header order is supplied.
 
-Preferred logical order:
+Existing non-empty Google Sheets append by live header row. This avoids the earlier unsafe pattern of forcing a live sheet into canonical physical position before append.
 
 ```text
-SESSION ID / CONTEXT
-session.id
-run.id
 schema.version
+
+session.date
+session.time
+session.started_at
+session.ended_at
+session.id
 session.mode
 session.share_code
+session.trial_count
+session.is_test
+run.id
 participant.name
+
 protocol.phenomenon
 protocol.type
 protocol.target_type
 protocol.response_mode
 protocol.deck_policy
+protocol.option_count
+protocol.options
+protocol.label
+protocol.tags
+protocol.notes
+
 rng.method
 rng.provider
 rng.seed
-session.started_at
-session.ended_at
-session.date
-session.time
-session.is_test
+rng.source_url
+rng.device_id
+rng.sample_id
 
-PRIMARY SESSION METRICS
+trial.index
+trial.is_skipped
+
+target.value
+
+response.first_value
+response.correct_position
+response.attempt_count
+response.attempt_sequence
+
 score.z
 score.p_value
 score.hit_rate
-
-SECONDARY SESSION METRICS
+score.is_hit
 score.weighted_score
 score.average_response_position
 score.response_position_std_dev
 score.chance_baseline
 score.expected_avg_response_position
+score.proximity_score
+score.pattern
+score.legacy_percent
 
-SESSION CONFIG
-protocol.option_count
-protocol.options
-session.trial_count
-
-TRIAL IDENTITY / OUTCOME
-trial.index
-target.value
-response.first_value
-score.is_hit
-response.correct_position
-response.attempt_count
-response.attempt_sequence
-trial.is_skipped
-analysis.is_excluded
-analysis.exclusion_reason
-
-TRIAL TIMING
-timing.trial_duration_ms
-timing.time_to_first_ms
-timing.response_intervals_ms
 timing.trial_started_at
 timing.trial_ended_at
 timing.trial_started_at_estimated
 timing.trial_ended_at_estimated
+timing.trial_duration_ms
+timing.time_to_first_ms
+timing.response_intervals_ms
+
 context.time_of_day
 context.time_of_day_is_estimated
-
-PROTOCOL / NOTES
-protocol.label
-protocol.tags
-protocol.notes
-notes.trial
-notes.voice_text
-notes.voice_source
 context.input_method
 context.training_overlay_opens
 context.training_overlay_ms
 
-LEGACY / CATEGORY-SPECIFIC SUPPORT
-score.legacy_percent
-score.proximity_score
-score.pattern
+notes.trial
+notes.voice_text
+notes.voice_source
 
-FUTURE RNG PROVENANCE
-rng.source_url
-rng.device_id
-rng.sample_id
+analysis.is_excluded
+analysis.exclusion_reason
 ```
 
 ## Migration Workflow
@@ -481,7 +479,6 @@ rng.sample_id
 
 ## Ambiguous Or Human-Review Items
 
-- Final column order still needs user approval.
 - `session.is_test` default should be confirmed for serious saved result rows.
 - `context.input_method` may default to `mixed`, but exact input capture may be preferable later.
 - Whether to preserve unknown CSV fields in a passthrough map is still open.

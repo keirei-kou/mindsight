@@ -23,6 +23,7 @@ export const SOLO_SCHEMA_NAMESPACE_DESCRIPTIONS = {
   context: "Environmental, input, and UI-context fields useful for filtering.",
   analysis: "Post-hoc inclusion/exclusion fields used for analysis filtering.",
   notes: "Human-entered notes and transcripts.",
+  archive: "External archive and synchronization metadata.",
 };
 
 export const MINDSIGHT_LEGACY_V0_HEADERS = [
@@ -74,22 +75,40 @@ export const MINDSIGHT_LEGACY_V0_HEADERS = [
 
 export const PSILABS_DOT_V1_FIELDS = [
   {
-    field: "session.id",
-    aliases: ["session_id", "sessionId"],
-    required: true,
-    defaultValue: "",
-  },
-  {
-    field: "run.id",
-    aliases: ["run_id", "runId"],
-    required: false,
-    defaultValue: "",
-  },
-  {
     field: "schema.version",
     aliases: ["schema_version", "schemaVersion"],
     required: false,
     defaultValue: SOLO_SCHEMA_VERSION,
+  },
+  {
+    field: "session.date",
+    aliases: ["date"],
+    required: false,
+    defaultValue: "",
+  },
+  {
+    field: "session.time",
+    aliases: ["time"],
+    required: false,
+    defaultValue: "",
+  },
+  {
+    field: "session.started_at",
+    aliases: ["started_at", "startedAt"],
+    required: false,
+    defaultValue: "",
+  },
+  {
+    field: "session.ended_at",
+    aliases: ["ended_at", "endedAt"],
+    required: false,
+    defaultValue: "",
+  },
+  {
+    field: "session.id",
+    aliases: ["session_id", "sessionId"],
+    required: true,
+    defaultValue: "",
   },
   {
     field: "session.mode",
@@ -100,6 +119,24 @@ export const PSILABS_DOT_V1_FIELDS = [
   {
     field: "session.share_code",
     aliases: ["share_code", "shareCode"],
+    required: false,
+    defaultValue: "",
+  },
+  {
+    field: "session.trial_count",
+    aliases: ["trial_count", "trialCount"],
+    required: false,
+    defaultValue: "",
+  },
+  {
+    field: "session.is_test",
+    aliases: ["is_test", "session_is_test", "sessionIsTest"],
+    required: false,
+    defaultValue: "true",
+  },
+  {
+    field: "run.id",
+    aliases: ["run_id", "runId"],
     required: false,
     defaultValue: "",
   },
@@ -140,6 +177,36 @@ export const PSILABS_DOT_V1_FIELDS = [
     defaultValue: "",
   },
   {
+    field: "protocol.option_count",
+    aliases: ["option_count", "optionCount"],
+    required: false,
+    defaultValue: "",
+  },
+  {
+    field: "protocol.options",
+    aliases: ["option_values", "optionValues", "options"],
+    required: false,
+    defaultValue: "",
+  },
+  {
+    field: "protocol.label",
+    aliases: ["protocol_label", "protocolLabel"],
+    required: false,
+    defaultValue: "",
+  },
+  {
+    field: "protocol.tags",
+    aliases: ["protocol_tags", "protocolTags"],
+    required: false,
+    defaultValue: "",
+  },
+  {
+    field: "protocol.notes",
+    aliases: ["protocol_notes", "protocolNotes"],
+    required: false,
+    defaultValue: "",
+  },
+  {
     field: "rng.method",
     aliases: ["rng_method", "rngMethod"],
     required: false,
@@ -158,34 +225,68 @@ export const PSILABS_DOT_V1_FIELDS = [
     defaultValue: "",
   },
   {
-    field: "session.started_at",
-    aliases: ["started_at", "startedAt"],
+    field: "rng.source_url",
+    aliases: ["rng_source_url", "rngSourceUrl"],
     required: false,
     defaultValue: "",
   },
   {
-    field: "session.ended_at",
-    aliases: ["ended_at", "endedAt"],
+    field: "rng.device_id",
+    aliases: ["rng_device_id", "rngDeviceId"],
     required: false,
     defaultValue: "",
   },
   {
-    field: "session.date",
-    aliases: ["date"],
+    field: "rng.sample_id",
+    aliases: ["rng_sample_id", "rngSampleId"],
     required: false,
     defaultValue: "",
   },
   {
-    field: "session.time",
-    aliases: ["time"],
+    field: "trial.index",
+    aliases: ["card_index", "cardIndex", "trial_index", "trialIndex"],
+    required: true,
+    defaultValue: "",
+  },
+  {
+    field: "trial.is_skipped",
+    aliases: ["skipped", "trial.skipped", "is_skipped"],
+    required: false,
+    defaultValue: "false",
+    description: "Whether this trial was skipped or marked incomplete.",
+  },
+  {
+    field: "target.value",
+    aliases: ["target_value", "targetValue", "target"],
+    required: true,
+    defaultValue: "",
+  },
+  {
+    field: "response.first_value",
+    aliases: ["first_guess", "firstGuess", "first_response", "response.first"],
+    required: false,
+    defaultValue: "",
+    description: "First response value submitted for this trial.",
+  },
+  {
+    field: "response.correct_position",
+    aliases: ["correct_guess_index", "correctGuessIndex", "correct_position"],
     required: false,
     defaultValue: "",
   },
   {
-    field: "session.is_test",
-    aliases: ["is_test", "session_is_test", "sessionIsTest"],
+    field: "response.attempt_count",
+    aliases: ["guess_count", "guessCount", "response_count", "response.count"],
     required: false,
-    defaultValue: "true",
+    defaultValue: "",
+    description: "Number of response attempts submitted for this trial.",
+  },
+  {
+    field: "response.attempt_sequence",
+    aliases: ["guesses", "guess_sequence", "response_sequence", "response.sequence"],
+    required: false,
+    defaultValue: "",
+    description: "Pipe-separated ordered response attempts for this trial.",
   },
   {
     field: "score.z",
@@ -204,6 +305,13 @@ export const PSILABS_DOT_V1_FIELDS = [
     aliases: ["first_guess_accuracy", "firstGuessAccuracy", "first_response_accuracy", "score.first_response_accuracy", "hit_rate"],
     required: false,
     defaultValue: "",
+  },
+  {
+    field: "score.is_hit",
+    aliases: ["first_guess_correct", "firstGuessCorrect", "first_response_correct", "score.first_response_correct", "score.hit", "hit", "is_hit"],
+    required: false,
+    defaultValue: "",
+    description: "Whether the trial's scoring response matched the target. For Mindsight this means the first response was correct.",
   },
   {
     field: "score.weighted_score",
@@ -237,104 +345,21 @@ export const PSILABS_DOT_V1_FIELDS = [
     defaultValue: "",
   },
   {
-    field: "protocol.option_count",
-    aliases: ["option_count", "optionCount"],
+    field: "score.proximity_score",
+    aliases: ["proximity", "score.proximity"],
+    required: false,
+    defaultValue: "",
+    description: "Legacy/color-specific proximity score; unclear for future generic protocols.",
+  },
+  {
+    field: "score.pattern",
+    aliases: ["pattern"],
     required: false,
     defaultValue: "",
   },
   {
-    field: "protocol.options",
-    aliases: ["option_values", "optionValues", "options"],
-    required: false,
-    defaultValue: "",
-  },
-  {
-    field: "session.trial_count",
-    aliases: ["trial_count", "trialCount"],
-    required: false,
-    defaultValue: "",
-  },
-  {
-    field: "trial.index",
-    aliases: ["card_index", "cardIndex", "trial_index", "trialIndex"],
-    required: true,
-    defaultValue: "",
-  },
-  {
-    field: "target.value",
-    aliases: ["target_value", "targetValue", "target"],
-    required: true,
-    defaultValue: "",
-  },
-  {
-    field: "response.first_value",
-    aliases: ["first_guess", "firstGuess", "first_response", "response.first"],
-    required: false,
-    defaultValue: "",
-    description: "First response value submitted for this trial.",
-  },
-  {
-    field: "score.is_hit",
-    aliases: ["first_guess_correct", "firstGuessCorrect", "first_response_correct", "score.first_response_correct", "score.hit", "hit", "is_hit"],
-    required: false,
-    defaultValue: "",
-    description: "Whether the trial's scoring response matched the target. For Mindsight this means the first response was correct.",
-  },
-  {
-    field: "response.correct_position",
-    aliases: ["correct_guess_index", "correctGuessIndex", "correct_position"],
-    required: false,
-    defaultValue: "",
-  },
-  {
-    field: "response.attempt_count",
-    aliases: ["guess_count", "guessCount", "response_count", "response.count"],
-    required: false,
-    defaultValue: "",
-    description: "Number of response attempts submitted for this trial.",
-  },
-  {
-    field: "response.attempt_sequence",
-    aliases: ["guesses", "guess_sequence", "response_sequence", "response.sequence"],
-    required: false,
-    defaultValue: "",
-    description: "Pipe-separated ordered response attempts for this trial.",
-  },
-  {
-    field: "trial.is_skipped",
-    aliases: ["skipped", "trial.skipped", "is_skipped"],
-    required: false,
-    defaultValue: "false",
-    description: "Whether this trial was skipped or marked incomplete.",
-  },
-  {
-    field: "analysis.is_excluded",
-    aliases: ["excluded", "analysis_excluded", "analysis.excluded", "is_excluded"],
-    required: false,
-    defaultValue: "false",
-    description: "Whether this row should be excluded from analysis views.",
-  },
-  {
-    field: "analysis.exclusion_reason",
-    aliases: ["exclusion_reason", "analysis_exclusion_reason"],
-    required: false,
-    defaultValue: "",
-  },
-  {
-    field: "timing.trial_duration_ms",
-    aliases: ["trial_duration_ms", "trialDurationMs"],
-    required: false,
-    defaultValue: "",
-  },
-  {
-    field: "timing.time_to_first_ms",
-    aliases: ["time_to_first_ms", "timeToFirstMs"],
-    required: false,
-    defaultValue: "",
-  },
-  {
-    field: "timing.response_intervals_ms",
-    aliases: ["guess_intervals_ms", "guessIntervalsMs", "response_intervals_ms"],
+    field: "score.legacy_percent",
+    aliases: ["score_percent", "accuracy"],
     required: false,
     defaultValue: "",
   },
@@ -363,6 +388,24 @@ export const PSILABS_DOT_V1_FIELDS = [
     defaultValue: "",
   },
   {
+    field: "timing.trial_duration_ms",
+    aliases: ["trial_duration_ms", "trialDurationMs"],
+    required: false,
+    defaultValue: "",
+  },
+  {
+    field: "timing.time_to_first_ms",
+    aliases: ["time_to_first_ms", "timeToFirstMs"],
+    required: false,
+    defaultValue: "",
+  },
+  {
+    field: "timing.response_intervals_ms",
+    aliases: ["guess_intervals_ms", "guessIntervalsMs", "response_intervals_ms"],
+    required: false,
+    defaultValue: "",
+  },
+  {
     field: "context.time_of_day",
     aliases: ["time_of_day_tag", "timeOfDayTag"],
     required: false,
@@ -371,42 +414,6 @@ export const PSILABS_DOT_V1_FIELDS = [
   {
     field: "context.time_of_day_is_estimated",
     aliases: ["time_of_day_is_estimated", "timeOfDayIsEstimated"],
-    required: false,
-    defaultValue: "",
-  },
-  {
-    field: "protocol.label",
-    aliases: ["protocol_label", "protocolLabel"],
-    required: false,
-    defaultValue: "",
-  },
-  {
-    field: "protocol.tags",
-    aliases: ["protocol_tags", "protocolTags"],
-    required: false,
-    defaultValue: "",
-  },
-  {
-    field: "protocol.notes",
-    aliases: ["protocol_notes", "protocolNotes"],
-    required: false,
-    defaultValue: "",
-  },
-  {
-    field: "notes.trial",
-    aliases: ["notes", "trial_notes", "trialNotes"],
-    required: false,
-    defaultValue: "",
-  },
-  {
-    field: "notes.voice_text",
-    aliases: ["voice_text", "voiceText"],
-    required: false,
-    defaultValue: "",
-  },
-  {
-    field: "notes.voice_source",
-    aliases: ["voice_source", "voiceSource"],
     required: false,
     defaultValue: "",
   },
@@ -429,42 +436,36 @@ export const PSILABS_DOT_V1_FIELDS = [
     defaultValue: "",
   },
   {
-    field: "score.legacy_percent",
-    aliases: ["score_percent", "accuracy"],
+    field: "notes.trial",
+    aliases: ["notes", "trial_notes", "trialNotes"],
     required: false,
     defaultValue: "",
   },
   {
-    field: "score.proximity_score",
-    aliases: ["proximity", "score.proximity"],
-    required: false,
-    defaultValue: "",
-    description: "Legacy/color-specific proximity score; unclear for future generic protocols.",
-  },
-  {
-    field: "score.pattern",
-    aliases: ["pattern"],
+    field: "notes.voice_text",
+    aliases: ["voice_text", "voiceText"],
     required: false,
     defaultValue: "",
   },
   {
-    field: "rng.source_url",
-    aliases: ["rng_source_url", "rngSourceUrl"],
+    field: "notes.voice_source",
+    aliases: ["voice_source", "voiceSource"],
     required: false,
     defaultValue: "",
   },
   {
-    field: "rng.device_id",
-    aliases: ["rng_device_id", "rngDeviceId"],
+    field: "analysis.is_excluded",
+    aliases: ["excluded", "analysis_excluded", "analysis.excluded", "is_excluded"],
     required: false,
-    defaultValue: "",
+    defaultValue: "false",
+    description: "Whether this row should be excluded from analysis views.",
   },
   {
-    field: "rng.sample_id",
-    aliases: ["rng_sample_id", "rngSampleId"],
+    field: "analysis.exclusion_reason",
+    aliases: ["exclusion_reason", "analysis_exclusion_reason"],
     required: false,
     defaultValue: "",
-  },
+  }
 ];
 
 export const PSILABS_DOT_V1_HEADERS = PSILABS_DOT_V1_FIELDS.map(({ field }) => field);
@@ -740,7 +741,10 @@ export function backfillSoloRows(rows) {
 }
 
 export function denormalizeSoloRow(normalizedRow, headers = PSILABS_DOT_V1_HEADERS) {
-  return headers.map((header) => normalizedRow?.[header] ?? getSoloFieldDefinition(header)?.defaultValue ?? "");
+  return headers.map((header) => {
+    const canonicalField = getCanonicalSoloFieldName(header) || header;
+    return normalizedRow?.[canonicalField] ?? getSoloFieldDefinition(canonicalField)?.defaultValue ?? "";
+  });
 }
 
 export function convertLegacySoloRowsToDotV1Values(rowObjects, headers = PSILABS_DOT_V1_HEADERS) {

@@ -1,4 +1,4 @@
-import { buildDotV1SoloTrialRows } from "./csv.js";
+import { buildDotV1SoloTrialRowObjects } from "./csv.js";
 import {
   PSILABS_DOT_V1_HEADERS,
   analyzeSoloHeaders,
@@ -128,6 +128,48 @@ function validateTrialsSheetHeaders(existingHeaders) {
   };
 }
 
+function getLiveAppendHeaders(existingHeaders) {
+  const headers = existingHeaders.map((header) => String(header || "").trim());
+
+  if (headers.every((header) => !header)) {
+    return {
+      shouldInitialize: true,
+      headers: PSILABS_DOT_V1_HEADERS,
+    };
+  }
+
+  const blankColumnNumbers = headers
+    .map((header, index) => header ? null : index + 1)
+    .filter((columnNumber) => columnNumber != null);
+
+  if (blankColumnNumbers.length > 0) {
+    throw new Error(`Trials sheet has blank header cells in columns: ${blankColumnNumbers.join(", ")}`);
+  }
+
+  const headerAnalysis = analyzeSoloHeaders(headers);
+
+  if (headerAnalysis.missingRequiredHeaders.length > 0) {
+    throw new Error(`Trials sheet is missing required columns: ${headerAnalysis.missingRequiredHeaders.join(", ")}`);
+  }
+
+  if (headerAnalysis.unknownHeaders.length > 0) {
+    throw new Error(`Trials sheet has columns this app does not know how to append to yet: ${headerAnalysis.unknownHeaders.join(", ")}`);
+  }
+
+  const duplicateCanonicalFields = headerAnalysis.recognizedHeaders.filter((field, index, fields) => {
+    return fields.indexOf(field) !== index;
+  });
+
+  if (duplicateCanonicalFields.length > 0) {
+    throw new Error(`Trials sheet has duplicate columns for fields: ${[...new Set(duplicateCanonicalFields)].join(", ")}`);
+  }
+
+  return {
+    shouldInitialize: false,
+    headers,
+  };
+}
+
 function mapRowsToObjects(headers, rows) {
   return rows.map((rowValues) =>
     Object.fromEntries(headers.map((header, index) => [header, rowValues[index] ?? ""]))
@@ -199,6 +241,12 @@ async function migrateTrialsSheetToDotV1(accessToken, spreadsheetId, existingHea
   return PSILABS_DOT_V1_HEADERS;
 }
 
+function buildAppendRowsForHeaders(sessionData, headers) {
+  return buildDotV1SoloTrialRowObjects(sessionData).map((rowObject) => {
+    return denormalizeSoloRow(rowObject, headers);
+  });
+}
+
 export async function appendSoloTrials(accessToken, spreadsheetId, sessionData) {
   if (!accessToken) {
     throw new Error("Connect Google before appending trials.");
@@ -210,19 +258,13 @@ export async function appendSoloTrials(accessToken, spreadsheetId, sessionData) 
 
   await ensureTrialsSheetExists(accessToken, spreadsheetId);
   const existingHeaders = await getTrialsSheetHeaderRow(accessToken, spreadsheetId);
-  const headerValidation = validateTrialsSheetHeaders(existingHeaders);
+  const appendTarget = getLiveAppendHeaders(existingHeaders);
 
-  if (headerValidation.shouldInitialize) {
+  if (appendTarget.shouldInitialize) {
     await writeTrialsSheetValues(accessToken, spreadsheetId, [PSILABS_DOT_V1_HEADERS]);
-  } else if (headerValidation.missingHeaders.length > 0) {
-    throw new Error(`Trials sheet is missing required columns: ${headerValidation.missingHeaders.join(", ")}`);
   }
 
-  if (!headerValidation.shouldInitialize) {
-    await migrateTrialsSheetToDotV1(accessToken, spreadsheetId, existingHeaders);
-  }
-
-  const trialRows = buildDotV1SoloTrialRows(sessionData);
+  const trialRows = buildAppendRowsForHeaders(sessionData, appendTarget.headers);
   if (trialRows.length === 0) {
     return { appendedRowCount: 0 };
   }

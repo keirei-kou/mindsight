@@ -36,30 +36,19 @@ Acceptance criteria:
 ### 2. Live Google Sheets Verification
 
 - Manually verify append/read behavior against a live Google Sheet.
-- Include new dot v1 sheets and recognized Mindsight v0/mixed sheets.
+- Include new dot v1 sheets, manually reordered dot v1 sheets, and recognized Mindsight v0/mixed sheets.
 - Confirm history rebuild and backfill behavior.
 
 Acceptance criteria:
 
-- New sheet initializes with current dot v1 headers.
-- Existing recognized v0/mixed sheet migrates or reads as expected.
-- Append writes dot v1 rows.
+- New sheet initializes with the approved canonical dot v1 header order.
+- Existing recognized v0/mixed sheet reads as expected.
+- Append writes by matching the live header row, not by assuming physical column position.
+- Manual column reordering in Google Sheets does not corrupt future appends.
 - History load succeeds.
 - Estimated timing and time-of-day fields backfill for historical rows.
 
-### 3. Column Order Finalization
-
-- Let the user finalize the final solo sheet column order.
-- Reorder only after schema completeness is settled.
-- Update the header list and matching row output together.
-
-Acceptance criteria:
-
-- `PSILABS_DOT_V1_HEADERS` or its future equivalent uses the approved order.
-- Row values produced by the CSV/Google Sheets row builder align with the header order.
-- Old CSV imports and old sheet reads still work through aliases/backfillers.
-
-### 4. Manual Solo Mode Testing
+### 3. Manual Solo Mode Testing
 
 Run manual testing across all solo mode combinations:
 
@@ -82,11 +71,11 @@ Acceptance criteria for each combination:
 - Graph renders.
 - CSV export succeeds.
 - CSV import succeeds.
-- Google Sheets append succeeds.
+- Google Sheets append succeeds against canonical-order and manually reordered sheets.
 - Google Sheets history load succeeds.
 - Historical rows backfill estimated trial timestamps and time-of-day.
 
-### 5. Multi-Run And Exit Protection Foundation
+### 4. Multi-Run And Exit Protection Foundation
 
 - Add exit protection for in-progress solo test phase.
 - Introduce a `savedRuns` session structure when ready.
