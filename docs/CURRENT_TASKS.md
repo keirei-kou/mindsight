@@ -1,6 +1,6 @@
 # Current Tasks
 
-Current actionable work inferred from `src/IMPLEMENTATION_HANDOFF.md`.
+Current actionable work for the next implementation pass. Completed work belongs in `ARCHIVED_TASKS.md`; future ideas belong in `ROADMAP.md`.
 
 ## Project State
 
@@ -15,21 +15,7 @@ Solo-mode foundations are mostly in place:
 - Google Sheets append/read behavior: `src/googleSheets.js`
 - Historical Google Sheets rebuild/backfill behavior: `src/googleSheetHistory.js`
 
-Recently completed:
-
-- `guessPolicy`: `repeatUntilCorrect`, `oneShot`
-- `deckPolicy`: `independentDraws`, `balancedDeck`
-- Analytics generalized by `optionCount`
-- Z-score and one-tailed p-value from first-guess accuracy
-- Exact per-trial timestamps for new solo runs
-- Historical timestamp and time-of-day backfill
-- Per-trial notes
-- Training overlay usage fields
-- Interrupted-session recovery snapshot
-- PsiLabs dot-style schema registry with legacy Mindsight aliases
-- CSV import/export migration support
-- Google Sheets v0/mixed sheet migration to dot v1
-- Schema backfillers for computable timing and score fields
+Recently completed work has been moved to `ARCHIVED_TASKS.md`.
 
 ## Immediate Next Tasks
 

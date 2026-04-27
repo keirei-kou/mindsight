@@ -1,18 +1,14 @@
-# UI Spacing and Layout Rules for Codex / Cursor
+# UI Spacing And Layout Rules
 
 ## Purpose
 
 Use this document as the default reference for improving UI spacing, alignment, hierarchy, and layout consistency across the app. Prioritize clarity, rhythm, and maintainability over decorative styling.
-
----
 
 ## Core Principle
 
 Good UI spacing comes from systems, not random pixel choices.
 
 Use consistent spacing tokens and reusable layout patterns.
-
----
 
 ## Approved Spacing Scale
 
@@ -37,8 +33,6 @@ Only use these values unless there is a strong reason otherwise:
 - **32**: separation between major sections
 - **48-64**: page-level breathing room
 
----
-
 ## Hard Rules
 
 1. Replace arbitrary spacing values with approved scale values.
@@ -54,20 +48,13 @@ Only use these values unless there is a strong reason otherwise:
 11. Align controls to shared heights and edges.
 12. Prefer clean vertical rhythm across forms and panels.
 
----
-
-## Three Levels of Spacing
+## Three Levels Of Spacing
 
 Every screen should visibly use:
 
-- **Micro**: 4-8  
-  labels, icons, tight rows
-- **Component**: 12-16  
-  cards, controls, groups
-- **Section**: 24-32+  
-  page regions, large content blocks
-
----
+- **Micro**: 4-8 for labels, icons, and tight rows.
+- **Component**: 12-16 for cards, controls, and groups.
+- **Section**: 24-32+ for page regions and large content blocks.
 
 ## Component Standards
 
@@ -96,8 +83,6 @@ Every screen should visibly use:
 - Use 12-16 column gaps
 - Avoid cramped rows
 
----
-
 ## Hierarchy Rules
 
 1. Most important content should scan first.
@@ -107,9 +92,7 @@ Every screen should visibly use:
 5. Metrics should appear in digestible groups.
 6. If two things look equally important but are not, fix spacing first.
 
----
-
-## Cleanup Instructions for Codex
+## Cleanup Instructions For Codex
 
 When revising any screen:
 
@@ -124,8 +107,6 @@ When revising any screen:
 9. Preserve functionality and logic.
 10. Improve layout only unless asked otherwise.
 
----
-
 ## Default App Baseline
 
 Use these defaults unless context requires changes:
@@ -138,11 +119,8 @@ Use these defaults unless context requires changes:
 - Tight inline gap: 8
 - Tiny label gap: 4
 
----
-
 ## Final Design Philosophy
 
-Calm spacing beats clever spacing.  
-Consistency beats improvisation.  
+Calm spacing beats clever spacing.
+Consistency beats improvisation.
 Structure beats clutter.
-

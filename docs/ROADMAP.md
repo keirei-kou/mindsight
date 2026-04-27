@@ -158,7 +158,7 @@ Storage and retention principles:
 - Supabase should hold only data needed for cloud UX.
 - Full trial rows in Supabase should be temporary.
 - Session summaries and scoreboard aggregates can persist longer than raw trial rows.
-- Shared links/rooms should expire automatically, with a candidate TTL of 14 to 30 days.
+- Shared links/rooms should expire automatically, with a candidate TTL of 7-14 days unless links were used recently.
 - Before cloud trial rows are scrubbed, prompt the user to save/archive to Google Sheets, export CSV, export JSON backup, or delete intentionally.
 
 Archive reminders:
@@ -167,6 +167,7 @@ Archive reminders:
 - The app should clearly distinguish durable archive, local-only save, pending sync/archive, and temporary cloud copy.
 - Future UI should include an "Unsaved / Needs Review" area for interrupted sessions, completed but unarchived sessions, pending Google Sheets writes, and sessions marked for exclusion/review.
 - Suggested Google Sheets archive rotation threshold: remind around 75,000 trial rows and strongly recommend a new archive around 100,000 trial rows.
+- Consider creating separate trial archive spreadsheets while preserving the last X months or Y trials in the active history view for recent long-term analysis.
 
 Suggested migration path:
 
