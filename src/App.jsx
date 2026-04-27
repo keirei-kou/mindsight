@@ -16,6 +16,9 @@ import { pickExistingSpreadsheet } from './googlePicker.js';
 import { buildSoloHistoryFromGoogleSheetRows } from './googleSheetHistory.js';
 import { clearInterruptedSession, restoreInterruptedSession } from './sessionRecovery.js';
 import { buildSoloSessionPayload } from './soloSessionPayload.js';
+import { supabase } from './lib/supabase'
+
+
 
 function getGoogleAccountKey(googleAuth) {
   return googleAuth?.accountId || googleAuth?.accountEmail || "";
