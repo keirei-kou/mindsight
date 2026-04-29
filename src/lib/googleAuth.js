@@ -12,81 +12,6 @@ function getGoogleSheetsScope() {
   return customScope || GOOGLE_SHEETS_SCOPE;
 }
 
-function getOAuthDebugSnapshot({ clientId, prompt }) {
-  const browserOrigin = typeof window !== "undefined" ? window.location.origin : "";
-  const browserHref = typeof window !== "undefined" ? window.location.href : "";
-
-  return {
-    flow: "google_identity_services_token_client",
-    client_id: clientId,
-    origin: browserOrigin,
-    redirect_uri: "(not set by app; Google Identity Services token flow manages the popup redirect)",
-    scope: getGoogleSheetsScope(),
-    prompt,
-    href: browserHref,
-    expected_production_origin: "https://psilabs.app",
-    expected_production_app_callback: "not used by this Connect with Google flow",
-    expected_supabase_callback: "not used by this Connect with Google flow",
-  };
-}
-
-function logOAuthDebugSnapshot(label, snapshot) {
-  console.groupCollapsed(`[PsiLabs Google OAuth Debug] ${label}`);
-  console.table(snapshot);
-  console.log("client_id:", snapshot.client_id);
-  console.log("origin:", snapshot.origin);
-  console.log("redirect_uri:", snapshot.redirect_uri);
-  console.log("scope:", snapshot.scope);
-  console.log("prompt:", snapshot.prompt);
-  console.log("href:", snapshot.href);
-  console.log("Expected production origin:", snapshot.expected_production_origin);
-  console.log("Expected production app callback:", snapshot.expected_production_app_callback);
-  console.log("Expected Supabase callback:", snapshot.expected_supabase_callback);
-  console.groupEnd();
-}
-
-function logOAuthUrl(url) {
-  console.groupCollapsed("[PsiLabs Google OAuth Debug] OAuth popup URL");
-  console.log("url:", url);
-
-  try {
-    const parsedUrl = new URL(url, window.location.href);
-    const params = Object.fromEntries(parsedUrl.searchParams.entries());
-    console.table({
-      origin: window.location.origin,
-      client_id: params.client_id || "(missing from URL)",
-      redirect_uri: params.redirect_uri || "(missing from URL)",
-      scope: params.scope || "(missing from URL)",
-      response_type: params.response_type || "(missing from URL)",
-      prompt: params.prompt || "(missing from URL)",
-    });
-  } catch (error) {
-    console.warn("[PsiLabs Google OAuth Debug] Unable to parse OAuth popup URL.", error);
-  }
-
-  console.groupEnd();
-}
-
-function installOAuthPopupUrlLogger() {
-  if (typeof window === "undefined" || typeof window.open !== "function") {
-    return () => {};
-  }
-
-  const originalOpen = window.open;
-
-  window.open = function openWithOAuthDebug(url, target, features) {
-    if (typeof url === "string" && url.includes("accounts.google.com")) {
-      logOAuthUrl(url);
-    }
-
-    return originalOpen.call(window, url, target, features);
-  };
-
-  return () => {
-    window.open = originalOpen;
-  };
-}
-
 export function isGoogleAuthConfigured() {
   return Boolean(getGoogleClientId());
 }
@@ -158,20 +83,14 @@ export async function requestGoogleAccessToken({ prompt = "consent" } = {}) {
     throw new Error("Google sign-in is not configured. Add VITE_GOOGLE_CLIENT_ID to your environment.");
   }
 
-  const debugSnapshot = getOAuthDebugSnapshot({ clientId, prompt });
-  logOAuthDebugSnapshot("before loading Google Identity Services", debugSnapshot);
-
   const google = await loadGoogleIdentityScript();
 
   return new Promise((resolve, reject) => {
-    logOAuthDebugSnapshot("initTokenClient config", debugSnapshot);
-
     const tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: clientId,
       scope: getGoogleSheetsScope(),
       callback: async (response) => {
         if (response?.error) {
-          console.error("[PsiLabs Google OAuth Debug] OAuth callback error response:", response);
           reject(new Error(response.error));
           return;
         }
@@ -188,23 +107,15 @@ export async function requestGoogleAccessToken({ prompt = "consent" } = {}) {
             ...userProfile,
           });
         } catch (error) {
-          console.error("[PsiLabs Google OAuth Debug] Unable to read Google profile after OAuth.", error);
           reject(new Error(error?.message || "Unable to read the connected Google account."));
         }
       },
       error_callback: (error) => {
-        console.error("[PsiLabs Google OAuth Debug] OAuth error callback:", {
-          ...debugSnapshot,
-          error,
-        });
         reject(new Error(error?.message || "Google sign-in was cancelled or blocked."));
       },
     });
 
-    const restoreOpen = installOAuthPopupUrlLogger();
-    logOAuthDebugSnapshot("requestAccessToken call", debugSnapshot);
     tokenClient.requestAccessToken({ prompt });
-    window.setTimeout(restoreOpen, 2000);
   });
 }
 
