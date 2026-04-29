@@ -2,6 +2,47 @@
 
 Future product and architecture ideas from the handoff, separated from current implementation tasks.
 
+## Infrastructure And Execution Model
+
+PsiLabs should grow infrastructure in phases while preserving the current local-first architecture. The frontend remains Vite + React, Google Sheets and CSV remain the durable full archive, and Supabase remains a lightweight cloud summary layer for auth, permissions, session summaries, scoreboards, and other cloud UX where useful.
+
+### Phase 1 - Local-First Protocol Engine
+
+- Vite + React frontend.
+- Supabase is optional and stores session summaries only.
+- Google Sheets + CSV are the primary archive for full trial history.
+- Row Level Security is the primary security layer for Supabase data.
+- No backend server is required for core local usage.
+
+### Phase 2 - Controlled Cloud Logic
+
+- Introduce Supabase Edge Functions or serverless functions only where client-side execution is not appropriate.
+- Use cloud functions for secure validation, aggregation jobs, and RNG providers.
+- Keep RNG providers server-side only when they require protected credentials or security-sensitive logic.
+- Cloud logic remains optional and must not block local usage.
+
+### Phase 3 - Intelligence Layer
+
+- Introduce AI-assisted processing such as speech-to-text, structured analysis, or review workflows.
+- Use server-side execution for external API calls and protected logic.
+- Keep vendor choices abstract until a concrete implementation is required.
+- Preserve local-first capture and archive paths even when intelligence features are unavailable.
+
+### Phase 4 - Unified App Layer (Optional)
+
+- Introduce a framework like Next.js only if the app needs a unified frontend and server logic layer.
+- Deploy the unified app layer on Vercel.
+- Keep Supabase as the data layer rather than replacing it.
+- Preserve compatibility with existing schema fields, Google Sheets archives, and CSV exports.
+
+### Design Principles
+
+- Local-first by default.
+- Supabase is not the permanent archive.
+- Backend logic is introduced only when required.
+- Avoid premature infrastructure complexity.
+- Preserve compatibility with the existing schema and Sheets archive.
+
 ## Product North Star
 
 PsiLabs is a flexible experiment engine for structured, repeatable protocols around unusual human claims.
@@ -174,6 +215,93 @@ Suggested migration path:
 1. Keep Google Sheets as optional user-owned export/history.
 2. Add IndexedDB for local durable history once multi-run sessions need persistence.
 3. Add database backend only when cross-device sync, public scoreboards, or real shared rooms become active requirements.
+
+## Shared Session Extensions
+
+These are deferred extensions for shared sessions after the MVP realtime room wrapper exists. They should not be part of the initial shared-session implementation.
+
+Analysis and comparison ideas:
+
+- Public scoreboard or recent group sessions view.
+- Median z-score, baseline comparison, or other shared-session aggregate views.
+- Solo vs shared performance comparison.
+- Participant profiles and cumulative participant stats.
+- Import validation and profile correction systems for reconciling participant identity across CSV, Sheets, and cloud summaries.
+- Double-blind modes or protocol variants.
+
+Privacy and account ideas:
+
+- Privacy settings for public, anonymous, private, or unlisted shared-session summaries.
+- Participant profile claiming or correction flows.
+- Long-term Supabase summary storage for shared-session summaries only, not full durable trial archives.
+- Data retention policies for operational/shared-session cloud data, such as retaining only the last 1000 shared sessions or pruning expired rooms.
+
+Infrastructure ideas:
+
+- Next.js, Vercel, or another unified app layer only if shared sessions later need server-rendered pages, server-mediated room links, protected server logic, or a unified frontend/server deployment.
+- Supabase should remain the data layer for shared-session summaries and realtime coordination unless a future requirement proves otherwise.
+- CSV and Google Sheets remain the durable archive for participant-level trial data.
+
+Advanced UI ideas:
+
+- Dragging participant tiles or advanced room-layout controls.
+- Zoom-like participant layouts for large shared sessions.
+- Rich observer/presenter views beyond the basic leader dashboard.
+
+## Leader Swatch / Participant State Perception
+
+This is a deferred shared-session extension and is not part of the Shared Session MVP.
+
+Design principle:
+
+- Treat leader swatch perception as another protocol/run type, not a separate data universe.
+- Reuse the existing dot-v1 schema skeleton as much as possible.
+- Do not create a separate `leader_observation` namespace unless there is no cleaner generic mapping.
+- Generic fields should remain reusable for any participant or protocol where they make sense.
+
+Normal shared participant trial:
+
+```text
+protocol.type = forced_choice_perception
+target.value = actual trial target
+response.first_value = participant guess
+score.is_hit = participant guessed target correctly
+```
+
+Leader participant-state perception trial:
+
+```text
+protocol.type = participant_state_perception
+protocol.target_type = participant_swatch | participant_guess | participant_completion_state
+participant.role = leader
+target.value = actual participant swatch/state
+response.first_value = leader's perceived swatch/state
+score.is_hit = leader perceived participant state correctly
+```
+
+Minimal possible additions:
+
+- `context.observed_participant_id`
+- `context.observed_participant_name`
+- `context.display_mode`
+
+Optional later additions:
+
+- `context.swatch_size`
+- `context.tile_layout`
+
+Analytics:
+
+- Reuse `score.hit_rate`.
+- Reuse `score.z`.
+- Reuse `score.p_value`.
+- Reuse `score.weighted_score`.
+- Reuse `score.average_response_position`.
+
+Future results UI may show separate sections:
+
+- Participant target accuracy.
+- Leader swatch/state perception accuracy.
 
 ## Telekinesis / Macro-PK Protocols
 

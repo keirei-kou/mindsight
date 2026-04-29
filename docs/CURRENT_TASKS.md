@@ -99,6 +99,209 @@ Solo-mode foundations are mostly in place:
 
 Recently completed work has been moved to `ARCHIVED_TASKS.md`.
 
+## Shared Session MVP
+
+Goal:
+
+- Build the minimal realtime shared-session layer without duplicating solo-mode protocol logic.
+- Treat Shared Session as Solo Engine + Realtime Room Wrapper.
+- Keep the app local-first: solo sessions and local shared-code sessions must still work without Supabase.
+
+Current repository shape:
+
+- Solo training flows through `Setup`, `TrainingRoom`, `SoloResults`, and `buildSoloSessionPayload()`.
+- Shared training currently uses `sharedSessionPayload` and deterministic deck restoration through a legacy share code.
+- Group tracker has participant rows and per-participant analytics, but its CSV shape is separate from dot-v1.
+- Supabase is currently optional through `src/lib/supabase.js` and is not required for local use.
+
+Data separation:
+
+- Supabase stores temporary operational state for realtime coordination only: room/session status, participant presence, current trial index, trial targets, and submitted responses.
+- CSV and Google Sheets remain the durable archive and must use participant-centric dot-v1-compatible rows.
+- Do not leak Supabase operational fields into CSV unless the field is analytically meaningful.
+- Do not compute or store group-averaged scores for the MVP.
+
+Reuse requirements:
+
+- Reuse `sessionModel` for session modes, policies, IDs, and metadata.
+- Reuse `sessionAnalytics` for trial records and participant analytics.
+- Reuse `soloSessionPayload` as the target shape for each participant's shared-session results.
+- Reuse `csv` and `schemaRegistry` so participant exports follow dot-v1 behavior.
+- Reuse existing deck/session setup behavior where possible; do not create a second protocol engine.
+
+MVP data model direction:
+
+- Leader is also a participant with `participant.role = leader`.
+- Participants join live rooms by `session.room_code`.
+- Reproducible trial/deck setup uses `session.deck_code`.
+- Treat existing `session.share_code` as a legacy deck/replay code for backward compatibility; do not overload it as the live room join code.
+- Shared session state advances by `session.current_trial_index`.
+- Session lifecycle uses `session.status`, such as lobby, active, completed, or expired.
+- Temporary room records include `session.expires_at`.
+- Participant presence can use `participant.color`, `participant.joined_at`, and `participant.last_seen_at`.
+- Responses include `response.participant_id` and `response.submitted_at`.
+- Most MVP operational fields remain Supabase-only and are not exported to CSV.
+
+Deck code vs room code:
+
+- `deck_code` answers: "What trial sequence/config are we using?"
+- `room_code` answers: "Which live room are we joining?"
+- A live room may be created from a `deck_code`.
+- A `deck_code` can exist without a live room.
+- A `room_code` should usually expire with the shared session.
+- A `deck_code` may remain reusable for replay or reproducibility.
+
+Example shared-session flow:
+
+1. App creates or reuses a `deck_code` for the trial sequence/config.
+2. App creates a new temporary Supabase shared session row.
+3. App generates a `room_code` for joining that live room.
+4. Participants join using `room_code`.
+5. All clients sync through the shared session row.
+6. After completion, participant CSV exports are generated from temporary response data.
+7. Temporary room data can expire or be deleted.
+8. `deck_code` may remain available if replay/reproducibility is desired.
+
+Implementation phases:
+
+1. Plan the shared room contracts.
+2. Add Supabase schema for temporary shared rooms.
+3. Add create/join/lobby UI.
+4. Add realtime participant and trial synchronization.
+5. Add participant response submission.
+6. Add basic leader dashboard.
+7. Build per-participant results.
+8. Add per-participant CSV export through dot-v1-compatible solo payloads.
+
+### 1. Shared Session Creation Flow
+
+- Add a leader flow that creates a Supabase-backed room from the existing setup/deck configuration.
+- Create or reuse a `session.deck_code` for the reproducible trial sequence/config.
+- Generate a separate `session.room_code` for joining the live room.
+- Store only temporary room setup data needed for realtime coordination.
+- Make clear in UI that Supabase is required only for realtime shared sessions, not solo/local usage.
+
+Acceptance criteria:
+
+- A leader can create a shared room from the existing setup screen.
+- The generated room includes the same category, active options, guess policy, deck policy, and deck order used by the solo engine.
+- The leader is inserted as a participant.
+- The room exposes a `room_code` for live joining and preserves `deck_code` separately for replay/reproducibility.
+- If Supabase is not configured, local solo/shared-code behavior still works.
+
+### 2. Join Via Room Code
+
+- Add a join path that looks up a temporary shared room by `session.room_code`.
+- Create a participant record for the joining user.
+- Restore the protocol setup and deck from the room instead of recomputing it client-side.
+
+Acceptance criteria:
+
+- A participant can enter a `room_code` and join the correct live room.
+- Unknown, expired, or completed rooms show clear errors.
+- Joining does not require Google Sheets.
+- `deck_code` is not accepted as a live room join code unless a future UX explicitly creates a new room from it.
+
+### 3. Lobby System
+
+- Add a lobby before the first trial starts.
+- Show session setup, participant name, participant role, and readiness/presence status.
+- Let the leader start the session.
+
+Acceptance criteria:
+
+- Leader and participants see the same lobby membership.
+- The leader can start the session.
+- Non-leaders cannot start or advance the session.
+
+### 4. Realtime Participant List
+
+- Subscribe to participant changes for the active room.
+- Update joined/left/last-seen state without refreshing.
+- Keep participant metadata minimal and temporary.
+
+Acceptance criteria:
+
+- Participant list updates in realtime for leader and participants.
+- Leader is visibly included as a participant.
+- Disconnected participants can be shown without corrupting submitted responses.
+
+### 5. Trial Synchronization
+
+- Drive all clients from `session.current_trial_index`.
+- Leader advances the shared session; participants follow the current index.
+- Trial targets come from the room deck and are consistent for every participant.
+
+Acceptance criteria:
+
+- Every participant sees the same trial index.
+- Participants cannot submit against a different trial index than the room's current one.
+- The app can recover current index and submitted responses after refresh while the room exists.
+
+### 6. Response Submission
+
+- Allow every participant, including the leader, to submit guesses for each trial.
+- Store responses temporarily in Supabase with participant ID, trial index, guess sequence, timing, and submitted timestamp.
+- Preserve guess-policy behavior from the solo engine.
+
+Acceptance criteria:
+
+- One participant's response does not overwrite another participant's response.
+- Repeat-until-correct and one-shot modes follow existing solo behavior.
+- Responses remain scoped to the shared room and can be deleted with the room.
+
+### 7. Basic Leader Dashboard
+
+- Show leader controls for session status, current trial, participant completion, and advance/end actions.
+- Keep dashboard metrics operational only for facilitation.
+- Keep deferred shared-session extensions out of the MVP.
+
+Acceptance criteria:
+
+- Leader can see who has submitted for the current trial.
+- Leader can advance only when the current trial is ready or intentionally ended.
+- Leader can end the session and move everyone to results.
+
+### 8. Per-Participant Results
+
+- Derive a solo-compatible dataset for each participant from the shared room's trials and responses.
+- Use existing analytics helpers for participant-level summary cards and charts.
+- Do not compute or store group-averaged scores.
+
+Acceptance criteria:
+
+- Each participant sees their own results.
+- Leader can inspect participant completion state, but the durable export remains participant-centric.
+- Results preserve `session.mode = shared` and shared session identity where analytically useful.
+
+### 9. CSV Export Per Participant
+
+- Build exports through `buildSoloSessionPayload()` or a shared wrapper that returns the same shape.
+- Export dot-v1-compatible rows through the existing CSV/schema registry path.
+- Keep operational room fields out of CSV unless mapped to existing analytical fields such as `session.deck_code`, `session.mode`, `participant.name`, `trial.index`, `response.attempt_sequence`, and `response.submitted_at`.
+- Treat `session.room_code` as operational and temporary by default; include it in durable exports only if later analysis proves it useful.
+
+Acceptance criteria:
+
+- Each participant can download their own CSV.
+- CSV headers match the dot-v1 solo export system.
+- Google Sheets append remains compatible with dot-v1.
+- No group rollup columns or temporary Supabase room-management fields appear in participant CSV.
+
+### 10. Supabase Temporary Sync
+
+- Add temporary shared-session tables or equivalent records for rooms, participants, trials, and responses.
+- Use RLS as the primary security layer.
+- Keep shared-session rows deletable after completion or expiration.
+- Do not treat Supabase as the permanent archive.
+
+Acceptance criteria:
+
+- Supabase stores only realtime coordination data needed for the active shared session.
+- RLS prevents arbitrary writes across rooms.
+- Room data can expire or be deleted without affecting CSV/Sheets archives.
+- Local solo usage remains fully functional without Supabase.
+
 ## Immediate Next Tasks
 
 Do these one at a time.

@@ -99,7 +99,7 @@ Potential namespaces:
 session_id                  -> session.id
 run_id                      -> run.id
 app_mode                    -> session.mode
-share_code                  -> session.share_code
+share_code                  -> session.share_code (legacy deck/replay code)
 started_at                  -> session.started_at
 ended_at                    -> session.ended_at
 date                        -> session.date
@@ -155,12 +155,67 @@ weighted_score              -> score.weighted_score
 notes                       -> notes.trial
 ```
 
+## Deck Code And Room Code
+
+Use two separate concepts for reproducible trial configuration and live shared-session joining.
+
+`deck_code`:
+
+- Purpose: reproduce or reload the same trial/deck configuration.
+- Meaning: "What trial sequence/config are we using?"
+- Used for repeatability, solo replay, or creating a new session from the same target sequence.
+- Supabase may store a short `deck_code` that points to a longer generated config, seed, or session/deck payload.
+- This is a convenience/short-link mediator, not the permanent archive.
+- A `deck_code` may exist without a live room and may remain reusable for replay/reproducibility.
+
+`room_code`:
+
+- Purpose: join a live shared session room.
+- Meaning: "Which live room are we joining?"
+- Used for realtime synchronized group training.
+- Supabase stores a short `room_code` that points to an active shared session row.
+- The room manages live participants, `session.current_trial_index`, temporary responses, and `session.status`.
+- A `room_code` should usually expire with the shared session.
+
+Relationship:
+
+- `deck_code` -> reproducible trial configuration / target sequence.
+- `room_code` -> active shared session room.
+- `deck_code` and `room_code` are not interchangeable.
+- A live room may be created from a `deck_code`.
+- A `deck_code` can exist without a live room.
+
+Example shared-session flow:
+
+1. App creates or reuses a `deck_code` for the trial sequence/config.
+2. App creates a new Supabase shared session row.
+3. App generates a `room_code` for joining that live room.
+4. Participants join using `room_code`.
+5. All clients sync through the shared session row.
+6. After completion, participant CSV exports are generated from temporary response data.
+7. Temporary room data can expire/delete.
+8. `deck_code` may remain available if replay/reproducibility is desired.
+
+Schema direction:
+
+- Prefer `session.deck_code` for replay/reproducibility.
+- Prefer `session.room_code` for live shared-session joining.
+- Do not overload `session.share_code` for both meanings unless preserving backward compatibility requires it.
+- Treat existing `session.share_code` as a legacy deck/replay code.
+- Later consider renaming `session.share_code` -> `session.deck_code` through schema migration.
+- Keep `session.room_code` operational and temporary by default; do not include it in durable CSV/Sheets exports unless it becomes analytically meaningful.
+
 ## Generic Core Fields
 
 ```text
 session.id
 session.mode
 session.share_code
+session.deck_code
+session.room_code
+session.status
+session.current_trial_index
+session.expires_at
 session.trial_count
 session.started_at
 session.ended_at
@@ -263,6 +318,11 @@ Implemented or targeted dot-style fields include:
 
 - `schema.version`
 - `session.is_test`
+- `session.deck_code`
+- `session.room_code`
+- `session.status`
+- `session.current_trial_index`
+- `session.expires_at`
 - `rng.method`
 - `rng.provider`
 - `rng.seed`
@@ -298,7 +358,7 @@ Suggested safe defaults:
 - `analysis.is_excluded`: `false`.
 - `rng.method`: `crypto_rng` for normal solo generated decks.
 - `rng.provider`: `browser_crypto` for current browser-generated randomness.
-- `rng.seed`: `session.share_code` when the share code is the reproducibility seed.
+- `rng.seed`: `session.deck_code` when the deck code is the reproducibility seed; legacy rows may use `session.share_code`.
 - `context.input_method`: `mixed` when exact input mode is unknown.
 
 Fields that should not be invented:
