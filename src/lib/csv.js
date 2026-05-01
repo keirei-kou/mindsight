@@ -817,7 +817,6 @@ export function parseGroupResultsCsv(text) {
       deckPolicy,
       session,
       timers,
-      endedAt: new Date(runningMs).toISOString(),
       importedFromCsv: true,
     };
   }
