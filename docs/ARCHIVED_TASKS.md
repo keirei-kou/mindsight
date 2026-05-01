@@ -88,6 +88,23 @@ Reasoning:
 - Canonical generation should be deterministic, but existing user-owned sheets should not be physically rewritten during append.
 - Physical migration/reorder belongs behind explicit upgrade UX so data is not silently cleared, rewritten, or reordered.
 
+## 2026-04-29 Real-Time Local Session Persistence
+
+Completed:
+
+- Added IndexedDB as a local session persistence layer for solo training sessions.
+- Created local `sessions` and `trials` storage, with sessions tracked as `in_progress` or `completed`.
+- Saved each completed trial immediately after trial finalization, keyed by `session_id` and `trial_index` so duplicate writes overwrite safely.
+- Kept React state and refs as the UI/runtime source during active sessions.
+- Kept Google Sheets as the end-of-session user-owned archive/export path.
+- Added a basic data-layer recovery helper for reading an in-progress session and its saved trials.
+- Reduced data-loss risk from refreshes or crashes during sessions and laid groundwork for future desktop/local-first storage.
+
+Related files:
+
+- `src/lib/localSessionStore.js`
+- `src/pages/TrainingRoom.jsx`
+
 ## 2026-04-30 Local ASR Provider Diagnostics
 
 Completed:
