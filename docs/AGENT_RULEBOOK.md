@@ -15,6 +15,53 @@ Stable instructions for AI agents working on PsiLabs.
 - Do schema completeness before final column reordering.
 - Use `let` by default where a binding may need reassignment.
 
+## Task Intake And Model Selection
+
+Before starting any non-trivial task, classify the task risk and recommend the model tier.
+
+Required task header:
+
+```text
+Task risk: Low / Medium / High
+Recommended model: [model/tier]
+Reasoning level: Low / Medium / High / Extra High
+Speed: Standard / Fast
+Why: [one sentence]
+```
+
+Risk tiers:
+
+- Low: mechanical documentation, roadmap, task-list, formatting, simple copy, git status, commit-message, or other utility work. Recommend Tier 3, low or medium reasoning, and standard speed unless the user explicitly wants fast disposable output.
+- Medium: normal reversible implementation such as UI improvements, component cleanup, settings toggles, non-critical bug fixes, logs, error messages, or small refactors. Recommend Tier 2 with medium or high reasoning and standard speed.
+- High: irreversible, security-sensitive, schema-sensitive, architecture-critical, production-data, migration, auth/OAuth, payment, data-integrity, session-recording, trial/session schema, backward-compatible export, voice-provider architecture, routing/deployment, or hard-to-reverse work. Recommend Tier 1 with high or extra-high reasoning and standard speed.
+
+Do not assume the selected model can be changed automatically. State the recommendation, explain why, and ask the user to confirm or switch manually when the current model appears inappropriate. For low-risk tasks, proceed without requiring the strongest model.
+
+Before high-risk edits:
+
+- Read the relevant files first.
+- Summarize the plan.
+- Identify rollback risk.
+- Make minimal targeted changes.
+- Avoid broad refactors.
+
+## Architecture Boundary
+
+- Keep PsiLabs on Vite + React on Vercel for now.
+- Do not migrate to Next.js unless a current implementation target requires server-backed app behavior.
+- Use Supabase for realtime and database needs while the app remains Vite + React.
+- Keep business logic portable in `src/lib`, `src/hooks`, and `src/components` so a future framework migration mostly affects routing, entry files, environment variables, and server/backend boundaries.
+- Re-evaluate Next.js only when one of these becomes central:
+  - Backend API routes inside the app.
+  - Server-mediated shared room links.
+  - Server-side short link generation.
+  - Server-side secrets or protected RNG / QRNG provider credentials.
+  - Auth-heavy private dashboards or auth as a core user experience.
+  - Stripe subscriptions or webhook handling.
+  - AI, speech-to-text, audio, video, or OpenCV processing through external APIs.
+  - Public SEO-heavy protocol, result, research, or docs pages.
+  - Dynamic share/result pages that need server-rendered metadata.
+
 ## Schema And Data Rules
 
 - Use the schema registry for CSV and Google Sheets field names, aliases, defaults, required fields, optional fields, and backfillers.
