@@ -66,6 +66,7 @@ export function createBrowserSpeechProvider(options = {}) {
   const resultCallbacks = createCallbackSet();
   const errorCallbacks = createCallbackSet();
   const stateCallbacks = createCallbackSet();
+  const lifecycleCallbacks = createCallbackSet();
   let listener = null;
 
   return {
@@ -82,6 +83,7 @@ export function createBrowserSpeechProvider(options = {}) {
         onResult: (result) => resultCallbacks.emit(result),
         onError: (error) => errorCallbacks.emit(error),
         onStateChange: (state) => stateCallbacks.emit(state),
+        onLifecycle: (event) => lifecycleCallbacks.emit(event),
       });
     },
     stop() {
@@ -100,6 +102,9 @@ export function createBrowserSpeechProvider(options = {}) {
     },
     onStateChange(callback) {
       return stateCallbacks.add(callback);
+    },
+    onLifecycle(callback) {
+      return lifecycleCallbacks.add(callback);
     },
   };
 }

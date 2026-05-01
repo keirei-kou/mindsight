@@ -14,9 +14,10 @@ const TARGET_COMMANDS = [
 ];
 
 const DEFAULT_ASSET_PATH = "models/sherpa-onnx/";
-const DEFAULT_ASR_HELPER_SCRIPT = "sherpa-onnx-asr.js";
-const DEFAULT_MAIN_SCRIPT = "sherpa-onnx-wasm-main-asr.js";
-const ALTERNATE_MAIN_SCRIPT = "sherpa-onnx-wasm-asr-main.js";
+const DEFAULT_ASR_HELPER_SCRIPT = "sherpa-onnx.js";
+const ALTERNATE_ASR_HELPER_SCRIPT = "sherpa-onnx-asr.js";
+const DEFAULT_MAIN_SCRIPT = "sherpa-onnx-wasm-asr-main.js";
+const ALTERNATE_MAIN_SCRIPT = "sherpa-onnx-wasm-main-asr.js";
 
 let runtimePromise = null;
 
@@ -32,6 +33,13 @@ function getSherpaMainScriptNames(options = {}) {
   return [
     options.mainScriptName || import.meta.env.VITE_SHERPA_ONNX_MAIN_SCRIPT || DEFAULT_MAIN_SCRIPT,
     ALTERNATE_MAIN_SCRIPT,
+  ].filter((name, index, names) => name && names.indexOf(name) === index);
+}
+
+function getSherpaHelperScriptNames(options = {}) {
+  return [
+    options.asrHelperScriptName || import.meta.env.VITE_SHERPA_ONNX_HELPER_SCRIPT || DEFAULT_ASR_HELPER_SCRIPT,
+    ALTERNATE_ASR_HELPER_SCRIPT,
   ].filter((name, index, names) => name && names.indexOf(name) === index);
 }
 
@@ -92,6 +100,7 @@ function loadSherpaRuntime(options = {}, onStatus = () => {}) {
 
   const assetBaseUrl = getSherpaAssetBaseUrl(options);
   const mainScriptNames = getSherpaMainScriptNames(options);
+  const helperScriptNames = getSherpaHelperScriptNames(options);
 
   runtimePromise = new Promise((resolve, reject) => {
     const timeoutMs = options.runtimeTimeoutMs ?? 45000;
@@ -124,7 +133,7 @@ function loadSherpaRuntime(options = {}, onStatus = () => {}) {
       },
     };
 
-    loadClassicScript(joinUrl(assetBaseUrl, options.asrHelperScriptName || DEFAULT_ASR_HELPER_SCRIPT))
+    loadFirstAvailableScript(assetBaseUrl, helperScriptNames)
       .then(() => loadFirstAvailableScript(assetBaseUrl, mainScriptNames))
       .catch((error) => {
         runtimePromise = null;
