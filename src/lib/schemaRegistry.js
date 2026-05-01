@@ -648,9 +648,7 @@ function backfillSoloSessionRows(sessionRows) {
     const nextRow = { ...row };
     const durationMs = getTrialDurationMs(nextRow);
     const exactStart = nextRow["timing.trial_started_at"];
-    const exactEnd = nextRow["timing.trial_ended_at"];
     const estimatedStartFromRow = nextRow["timing.trial_started_at_estimated"];
-    const estimatedEndFromRow = nextRow["timing.trial_ended_at_estimated"];
     const canEstimate = !exactStart && !estimatedStartFromRow && Number.isFinite(sessionStartMs);
     const estimatedStart = canEstimate ? new Date(sessionStartMs + cumulativeMs) : null;
     const estimatedEnd = canEstimate && durationMs != null
