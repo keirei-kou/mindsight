@@ -10,6 +10,7 @@ from pathlib import Path
 from local_speech_engine.asr.base import AsrProviderError, AsrTranscript
 from local_speech_engine.scripts.benchmark_arbitration import (
     load_arbitration_samples,
+    parse_policy_names,
     run_benchmark,
 )
 
@@ -125,6 +126,7 @@ class BenchmarkArbitrationTests(unittest.TestCase):
 
         report = run_benchmark(
             provider_names=["vosk", "sherpa"],
+            policy_names=["hybrid_default", "confidence_weighted"],
             labels_path=labels_path,
             corpus_dir=corpus_dir,
             output_dir=output_dir,
@@ -133,10 +135,14 @@ class BenchmarkArbitrationTests(unittest.TestCase):
         )
 
         self.assertEqual(report["total_samples"], 2)
-        self.assertEqual(report["arbitration"]["passed"], 2)
-        self.assertEqual(report["by_provider"]["vosk"]["passed"], 2)
-        self.assertEqual(report["by_provider"]["sherpa"]["passed"], 2)
-        self.assertEqual(report["by_command"]["red"]["arbitration_passed"], 1)
+        self.assertEqual(report["policies"], ["hybrid_default", "confidence_weighted"])
+        self.assertEqual(report["arbitration"]["passed"], 4)
+        self.assertEqual(report["by_policy"]["hybrid_default"]["passed"], 2)
+        self.assertEqual(report["by_policy"]["confidence_weighted"]["passed"], 2)
+        self.assertEqual(report["by_provider"]["vosk"]["passed"], 4)
+        self.assertEqual(report["by_provider"]["sherpa"]["passed"], 4)
+        self.assertEqual(report["by_command"]["red"]["arbitration_passed"], 2)
+        self.assertEqual({row["policy_name"] for row in report["rows"]}, {"hybrid_default", "confidence_weighted"})
         self.assertTrue(Path(report["json_path"]).exists())
         self.assertTrue(Path(report["csv_path"]).exists())
 
@@ -167,6 +173,12 @@ class BenchmarkArbitrationTests(unittest.TestCase):
         self.assertEqual(report["arbitration"]["passed"], 1)
         self.assertEqual(report["by_provider"]["sherpa"]["errors"], 1)
         self.assertEqual(len(report["rows"]), 2)
+
+    def test_parse_policy_names_dedupes_and_safely_falls_back_unknown_values(self) -> None:
+        self.assertEqual(
+            parse_policy_names("hybrid_default,not_real,confidence_weighted,hybrid_default"),
+            ["hybrid_default", "confidence_weighted"],
+        )
 
 
 if __name__ == "__main__":

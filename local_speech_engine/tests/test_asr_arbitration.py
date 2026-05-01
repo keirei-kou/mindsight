@@ -9,6 +9,11 @@ from pathlib import Path
 from local_speech_engine.asr.arbitrator import AsrArbiter
 from local_speech_engine.asr.base import AsrProviderError, AsrTranscript
 from local_speech_engine.asr.normalization import VOICE_NOTE_PROFILE
+from local_speech_engine.asr.policies import (
+    CONFIDENCE_WEIGHTED_POLICY,
+    HYBRID_DEFAULT_POLICY,
+    PROVIDER_PRIORITY_POLICY,
+)
 
 
 TEST_ROOT = Path(__file__).resolve().parent / "_arbitration_test_data"
@@ -134,6 +139,7 @@ class AsrArbitrationTests(unittest.TestCase):
         self.assertEqual(result.final_command, "red")
         self.assertEqual(result.final_text, "red")
         self.assertEqual(result.decision_reason, "agreement")
+        self.assertEqual(result.policy_name, HYBRID_DEFAULT_POLICY)
 
     def test_vocabulary_validity_beats_cross_provider_confidence(self) -> None:
         arbiter = self.make_arbiter([
@@ -176,6 +182,62 @@ class AsrArbitrationTests(unittest.TestCase):
 
         self.assertEqual(result.final_command, "green")
         self.assertEqual(result.decision_reason, "provider_priority")
+
+    def test_confidence_weighted_can_beat_agreement_when_explicitly_selected(self) -> None:
+        arbiter = self.make_arbiter([
+            FakeProvider("vosk", "read", confidence=0.1),
+            FakeProvider("sherpa", "red", confidence=0.2),
+            FakeProvider("other", "blue", confidence=0.99),
+        ])
+
+        hybrid_result = arbiter.arbitrate_segment(
+            filename_or_path="segment.wav",
+            provider_names=["vosk", "sherpa", "other"],
+            policy=HYBRID_DEFAULT_POLICY,
+        )
+        confidence_result = arbiter.arbitrate_segment(
+            filename_or_path="segment.wav",
+            provider_names=["vosk", "sherpa", "other"],
+            policy=CONFIDENCE_WEIGHTED_POLICY,
+        )
+
+        self.assertEqual(hybrid_result.final_command, "red")
+        self.assertEqual(confidence_result.final_command, "blue")
+        self.assertEqual(confidence_result.policy_name, CONFIDENCE_WEIGHTED_POLICY)
+        self.assertEqual(confidence_result.decision_reason, "confidence")
+
+    def test_provider_priority_policy_can_override_agreement(self) -> None:
+        arbiter = self.make_arbiter([
+            FakeProvider("vosk", "green"),
+            FakeProvider("sherpa", "blue"),
+            FakeProvider("other", "blue"),
+        ])
+
+        result = arbiter.arbitrate_segment(
+            filename_or_path="segment.wav",
+            provider_names=["vosk", "sherpa", "other"],
+            policy=PROVIDER_PRIORITY_POLICY,
+        )
+
+        self.assertEqual(result.final_command, "green")
+        self.assertEqual(result.policy_name, PROVIDER_PRIORITY_POLICY)
+        self.assertEqual(result.decision_reason, "provider_priority")
+
+    def test_invalid_policy_falls_back_to_default_with_metadata(self) -> None:
+        arbiter = self.make_arbiter([
+            FakeProvider("vosk", "red"),
+        ])
+
+        result = arbiter.arbitrate_segment(
+            filename_or_path="segment.wav",
+            provider_names=["vosk"],
+            policy="not_real",
+        )
+
+        self.assertEqual(result.policy_name, HYBRID_DEFAULT_POLICY)
+        self.assertTrue(result.details["policy_fallback"])
+        self.assertEqual(result.details["requested_policy"], "not_real")
+        self.assertEqual(result.final_command, "red")
 
     def test_provider_failures_are_preserved_as_structured_results(self) -> None:
         provider_error = AsrProviderError(

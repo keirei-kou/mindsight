@@ -555,6 +555,7 @@ class LocalVadService:
             for provider_run in result.provider_runs:
                 provider_payload = provider_run.to_dict()
                 provider_payload["mode"] = result.mode
+                provider_payload["policy"] = result.policy_name
                 self._emit("asr_provider_result", **provider_payload)
             self._emit("asr_arbitration_result", **result.to_dict())
         except AsrProviderError as error:
