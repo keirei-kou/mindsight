@@ -3,7 +3,7 @@ import { DisplayMode } from '../pages/DisplayMode.jsx';
 import { Setup } from '../pages/Setup.jsx';
 import { Session } from '../pages/Session.jsx';
 import { Instructions } from '../pages/Instructions.jsx';
-import { TrainingRoom } from '../pages/TrainingRoom.jsx';
+import { CalibrationRoom } from '../pages/TrainingRoom.jsx';
 import { SoloResults } from '../pages/SoloResults.jsx';
 import { GroupInstructions } from '../pages/GroupInstructions.jsx';
 import { GroupResults } from '../pages/GroupResults.jsx';
@@ -290,7 +290,7 @@ export default function App() {
   if (screen === "groupInstructions" && sessionData)
     return <GroupInstructions category={sessionData.category} activeItems={sessionData.colors} onContinue={goSession} onBack={end} />;
   if (screen === "micsetup"         && sessionData) return <Instructions category={sessionData.category} activeItems={sessionData.colors} onContinue={goTraining} onBack={end} />;
-  if (screen === "training"    && sessionData) return <TrainingRoom items={sessionData.colors} slots={sessionData.slots} category={sessionData.category} name={sessionData.name} appMode={sessionData.appMode} shareCode={sessionData.shareCode} guessPolicy={sessionData.guessPolicy} deckPolicy={sessionData.deckPolicy} onBack={end} onInstructions={goInstructions} onFinish={goResults} />;
+  if (screen === "training"    && sessionData) return <CalibrationRoom items={sessionData.colors} slots={sessionData.slots} category={sessionData.category} name={sessionData.name} appMode={sessionData.appMode} shareCode={sessionData.shareCode} guessPolicy={sessionData.guessPolicy} deckPolicy={sessionData.deckPolicy} onBack={end} onInstructions={goInstructions} onFinish={goResults} />;
   if (screen === "soloResults" && sessionData?.soloResults) return <SoloResults data={sessionData.soloResults} onRestart={end} googleAuth={googleAuth} googleSheet={googleSheet} />;
   if (screen === "groupResults" && sessionData?.groupResults) return <GroupResults data={sessionData.groupResults} onRestart={end} onBack={() => setScreen("session")} />;
   return <Setup onStart={start} onImportResults={importResults} googleAuth={googleAuth} onConnectGoogle={connectGoogle} onSwitchGoogleAccount={switchGoogleAccount} onDisconnectGoogle={disconnectGoogle} googleSheet={googleSheet} onCreateGoogleSheet={createGoogleSheet} onPickGoogleSheet={pickGoogleSheet} onOpenGoogleResults={openGoogleResults} googleSheetWriteStatus={googleSheetWriteStatus} googleSheetReadStatus={googleSheetReadStatus} interruptedSession={interruptedSession} onOpenInterruptedSession={openInterruptedSession} onDismissInterruptedSession={dismissInterruptedSession} />;

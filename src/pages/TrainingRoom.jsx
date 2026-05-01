@@ -2,10 +2,12 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { itemMap, accuracyScore, proximityScore, patternLabel } from '../lib/utils.js';
 import { buildSoloSessionPayload } from '../lib/soloSessionPayload.js';
 import { createSessionId, GUESS_POLICIES, SESSION_MODES } from '../lib/sessionModel.js';
-import { speak } from '../lib/tts.js';
-import { isSpeechRecognitionSupported, startContinuousListening } from '../lib/speechRecognition.js';
+import { speak, speakSequence } from '../lib/tts.js';
+import { VOICE_PROVIDER_OPTIONS, createVoiceProvider } from '../lib/voiceProviders.js';
 import { matchTranscriptToCommand, matchTranscriptToItems } from '../lib/speechMatcher.js';
 import { persistInterruptedSession } from '../lib/sessionRecovery.js';
+import { appendTrialToIndexedDB, markLocalSessionCompleted, startLocalSession } from '../lib/localSessionStore.js';
+import { createLocalVadClient } from '../lib/localVadClient.js';
 
 const nowMs = () => Date.now();
 const CARD_ORDINALS = [
@@ -19,7 +21,7 @@ const CARD_ANNOUNCE_DELAY_MS = 300;
 const RESULTS_ANNOUNCE_DELAY_MS = 1400;
 const HOTLINE_VOICE = "bm_lewis";
 const TEST_VOICE = "af_heart";
-export function TrainingRoom({ items, slots, category, name, appMode = SESSION_MODES.SOLO, shareCode = null, guessPolicy, deckPolicy, onBack, onInstructions, onFinish }) {
+export function CalibrationRoom({ items, slots, category, name, appMode = SESSION_MODES.SOLO, shareCode = null, guessPolicy, deckPolicy, onBack, onInstructions, onFinish }) {
   const [phase, setPhase]     = useState("training");
   const [itemIdx, setItemIdx] = useState(0);
   const itemIdxRef            = useRef(0);
@@ -36,12 +38,33 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
   const trainingOverlayMsRef = useRef(0);
   const trainingOverlayOpenedAtRef = useRef(null);
   const [micState, setMicState] = useState("off");
+  const [voiceProviderId, setVoiceProviderId] = useState(() => {
+    if (typeof window === "undefined") return "browserSpeech";
+    const savedProvider = window.localStorage?.getItem("psilabsVoiceProvider") || "browserSpeech";
+    if (savedProvider === "openAiTranscription") return "whisperApi";
+    if (savedProvider === "whisperLocal") return "localWhisper";
+    return savedProvider;
+  });
+  const [voiceProviderName, setVoiceProviderName] = useState("browserSpeech");
+  const [voiceProviderMessage, setVoiceProviderMessage] = useState("");
+  const [voiceNoteUi, setVoiceNoteUi] = useState({ status: "idle", message: "", error: "" });
+  const [voiceNoteFragmentsBySlot, setVoiceNoteFragmentsBySlot] = useState({});
+  const [modeInstructionsEnabled, setModeInstructionsEnabled] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage?.getItem("psilabsModeInstructionsEnabled") !== "false";
+  });
   const [heardPhrase, setHeardPhrase] = useState("");
   const [heardMatchInfo, setHeardMatchInfo] = useState(null);
   const [lastMatchInfo, setLastMatchInfo] = useState(null);
   const [pendingConfirmation, setPendingConfirmation] = useState(null);
   const advanceTimeoutRef     = useRef(null);
   const recognitionRef        = useRef(null);
+  const voiceNoteClientRef    = useRef(null);
+  const voiceNoteRecordingRef = useRef(false);
+  const voiceNoteFragmentsRef = useRef({});
+  const voiceNoteFileIndexRef = useRef(new Map());
+  const modeInstructionsEnabledRef  = useRef(modeInstructionsEnabled);
+  const announcedModeRef      = useRef(null);
   const pendingConfirmationRef = useRef(null);
   const cardStartTime         = useRef(null);
   const sessionIdRef          = useRef(createSessionId());
@@ -76,6 +99,161 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
   useEffect(() => {
     pendingConfirmationRef.current = pendingConfirmation;
   }, [pendingConfirmation]);
+
+  function buildVoiceNoteFromFragments(fragments) {
+    const orderedFragments = Array.isArray(fragments) ? fragments : [];
+    const combinedText = orderedFragments
+      .map((fragment) => String(fragment.transcript || "").trim())
+      .filter(Boolean)
+      .join(" ");
+
+    return {
+      fragments: orderedFragments.map((fragment) => ({
+        file: fragment.filename,
+        duration_ms: fragment.duration_ms,
+        transcript: fragment.transcript || null,
+        status: fragment.status || "saved",
+      })),
+      combined_text: combinedText || null,
+    };
+  }
+
+  function syncCompletedVoiceNote(slotIndex, fragmentsBySlot) {
+    if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= resultsRef.current.length) {
+      return;
+    }
+
+    const voiceNote = buildVoiceNoteFromFragments(fragmentsBySlot[slotIndex] || []);
+    const nextResults = resultsRef.current.map((result, index) => (
+      index === slotIndex ? { ...result, voice_note: voiceNote } : result
+    ));
+    resultsRef.current = nextResults;
+    setResults(nextResults);
+  }
+
+  function setVoiceNoteFragments(updater, completedSlotIndex = null) {
+    const next = updater(voiceNoteFragmentsRef.current);
+    voiceNoteFragmentsRef.current = next;
+    setVoiceNoteFragmentsBySlot(next);
+    syncCompletedVoiceNote(completedSlotIndex, next);
+  }
+
+  useEffect(() => {
+    modeInstructionsEnabledRef.current = modeInstructionsEnabled;
+    try {
+      window.localStorage?.setItem("psilabsModeInstructionsEnabled", modeInstructionsEnabled ? "true" : "false");
+    } catch {
+      // Preference persistence is best-effort.
+    }
+  }, [modeInstructionsEnabled]);
+
+  useEffect(() => {
+    try {
+      window.localStorage?.setItem("psilabsVoiceProvider", voiceProviderId);
+    } catch {
+      // Preference persistence is best-effort.
+    }
+  }, [voiceProviderId]);
+
+  useEffect(() => {
+    const client = createLocalVadClient({
+      onError: () => {
+        if (voiceNoteRecordingRef.current) {
+          voiceNoteRecordingRef.current = false;
+          setVoiceNoteUi({ status: "error", message: "", error: "Voice note service is unavailable." });
+        }
+      },
+      onClose: () => {
+        if (voiceNoteRecordingRef.current) {
+          voiceNoteRecordingRef.current = false;
+          setVoiceNoteUi({ status: "error", message: "", error: "Voice note connection closed." });
+        }
+      },
+      onEvent: (event) => {
+        if (event.type === "voice_note_recording_started") {
+          voiceNoteRecordingRef.current = true;
+          setVoiceNoteUi({ status: "recording", message: "● Recording note...", error: "" });
+          return;
+        }
+
+        if (event.type === "voice_note_fragment_saved") {
+          const slotIndex = Number.isFinite(event.trial_index) ? event.trial_index - 1 : latest.current.slotIdx;
+          const fragment = {
+            filename: event.filename,
+            duration_ms: event.duration_ms,
+            transcript: null,
+            status: "transcribing",
+          };
+          voiceNoteFileIndexRef.current.set(event.filename, slotIndex);
+          setVoiceNoteFragments((current) => {
+            const existing = current[slotIndex] || [];
+            const nextFragments = [...existing.filter((item) => item.filename !== event.filename), fragment];
+            return { ...current, [slotIndex]: nextFragments };
+          }, slotIndex);
+          setVoiceNoteUi({ status: "saved", message: "Note fragment saved", error: "" });
+          return;
+        }
+
+        if (event.type === "voice_note_fragment_discarded") {
+          setVoiceNoteUi({ status: "idle", message: "Voice note was empty", error: "" });
+          return;
+        }
+
+        if (event.type === "voice_note_error") {
+          voiceNoteRecordingRef.current = false;
+          setVoiceNoteUi({ status: "error", message: "", error: event.message || "Voice note error." });
+          return;
+        }
+
+        if (event.type === "asr_transcript" && voiceNoteFileIndexRef.current.has(event.filename)) {
+          const slotIndex = voiceNoteFileIndexRef.current.get(event.filename);
+          setVoiceNoteFragments((current) => {
+            const existing = current[slotIndex] || [];
+            return {
+              ...current,
+              [slotIndex]: existing.map((fragment) => (
+                fragment.filename === event.filename
+                  ? { ...fragment, transcript: event.text || "", status: "transcribed" }
+                  : fragment
+              )),
+            };
+          }, slotIndex);
+          return;
+        }
+
+        if (event.type === "asr_transcript_error" && voiceNoteFileIndexRef.current.has(event.filename)) {
+          const slotIndex = voiceNoteFileIndexRef.current.get(event.filename);
+          setVoiceNoteFragments((current) => {
+            const existing = current[slotIndex] || [];
+            return {
+              ...current,
+              [slotIndex]: existing.map((fragment) => (
+                fragment.filename === event.filename
+                  ? { ...fragment, status: "transcription_error", error: event.message || "Transcription failed." }
+                  : fragment
+              )),
+            };
+          }, slotIndex);
+        }
+      },
+    });
+
+    voiceNoteClientRef.current = client;
+    client.connect();
+
+    return () => {
+      if (voiceNoteRecordingRef.current) {
+        try {
+          client.stopVoiceNote();
+        } catch {
+          // Cleanup is best-effort.
+        }
+      }
+      client.disconnect();
+      voiceNoteClientRef.current = null;
+      voiceNoteRecordingRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     finishMetaRef.current = {
@@ -122,21 +300,112 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
     return () => document.body.classList.remove("mindsight-fullbleed");
   }, []);
 
-  useEffect(() => {
-    const onPageHide = () => recordInterruption("pagehide");
-    const onBeforeUnload = () => recordInterruption("beforeunload");
-    window.addEventListener("pagehide", onPageHide);
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => {
-      window.removeEventListener("pagehide", onPageHide);
-      window.removeEventListener("beforeunload", onBeforeUnload);
-    };
-  }, []);
-
   function stopListening() {
-    recognitionRef.current?.stop?.();
+    if (recognitionRef.current?.cleanup) {
+      recognitionRef.current.cleanup();
+    } else {
+      recognitionRef.current?.stop?.();
+    }
     recognitionRef.current = null;
   }
+
+  function getVoiceNoteForTrial(slotIndex) {
+    return buildVoiceNoteFromFragments(voiceNoteFragmentsRef.current[slotIndex] || []);
+  }
+
+  function startVoiceNoteRecording() {
+    const { phase, slotIdx, target } = latest.current;
+    if (phase !== "test" || doneRef.current || !target || isHotlineOpenRef.current) {
+      setVoiceNoteUi({ status: "disabled", message: "Voice notes attach to active test cards", error: "" });
+      return;
+    }
+
+    if (voiceNoteRecordingRef.current) {
+      return;
+    }
+
+    try {
+      const client = voiceNoteClientRef.current;
+      if (!client) {
+        throw new Error("Voice note service is unavailable.");
+      }
+
+      client.startVoiceNote({
+        sessionId: sessionIdRef.current,
+        trialIndex: slotIdx + 1,
+      });
+      voiceNoteRecordingRef.current = true;
+      setVoiceNoteUi({ status: "recording", message: "● Recording note...", error: "" });
+    } catch (error) {
+      voiceNoteRecordingRef.current = false;
+      setVoiceNoteUi({
+        status: "error",
+        message: "",
+        error: error instanceof Error ? error.message : "Voice note service is unavailable.",
+      });
+    }
+  }
+
+  function stopVoiceNoteRecording() {
+    if (!voiceNoteRecordingRef.current) {
+      return;
+    }
+
+    voiceNoteRecordingRef.current = false;
+    try {
+      const client = voiceNoteClientRef.current;
+      if (!client) {
+        throw new Error("Voice note service is unavailable.");
+      }
+
+      client.stopVoiceNote();
+      setVoiceNoteUi({ status: "saving", message: "Saving note fragment...", error: "" });
+    } catch (error) {
+      setVoiceNoteUi({
+        status: "error",
+        message: "",
+        error: error instanceof Error ? error.message : "Unable to stop voice note recording.",
+      });
+    }
+  }
+
+  function getCurrentMode() {
+    const { phase } = latest.current;
+    if (phase === "training" || isHotlineOpenRef.current) {
+      return "calibration";
+    }
+    return "test";
+  }
+
+  function getCurrentOptionVoice() {
+    return getCurrentMode() === "calibration" ? HOTLINE_VOICE : undefined;
+  }
+
+  function speakModeInstructions(mode = getCurrentMode(), options = {}) {
+    const includeInstructions = modeInstructionsEnabledRef.current || options.force === true;
+    if (mode === "calibration") {
+      const lines = includeInstructions
+        ? ["Calibration.", "Press A or D to cycle through options, submission is paused."]
+        : ["Calibration."];
+      void speakSequence(lines, { voice: HOTLINE_VOICE });
+      return;
+    }
+
+    const lines = includeInstructions
+      ? ["Test Mode.", "Press A or D to cycle through options and space to submit the response."]
+      : ["Test Mode."];
+    void speakSequence(lines, { voice: TEST_VOICE });
+  }
+
+  useEffect(() => {
+    const activeMode = phase === "training" || isHotlineOpen ? "calibration" : "test";
+    if (announcedModeRef.current === activeMode) {
+      return;
+    }
+
+    announcedModeRef.current = activeMode;
+    speakModeInstructions(activeMode);
+  }, [phase, isHotlineOpen]);
 
   function beginTestPhase() {
     pendingConfirmationRef.current = null;
@@ -155,9 +424,18 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
     cardStartTime.current = null;
     sessionIdRef.current = createSessionId();
     sessionStartRef.current = new Date().toISOString();
+    void (async () => {
+      try {
+        await startLocalSession({
+          sessionId: sessionIdRef.current,
+          startedAt: sessionStartRef.current,
+        });
+      } catch {
+        // Local recovery is best-effort; active session flow should continue.
+      }
+    })();
     testStartBlockUntilRef.current = nowMs() + 250;
     setPhase("test");
-    speak("Test started.");
   }
 
   function toggleHotline(nextValue) {
@@ -186,15 +464,17 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
       }
     }
 
-    if (resolvedNext) {
-      speak("Training room.", { voice: HOTLINE_VOICE });
-    } else {
-      speak("Test resumed.", { voice: TEST_VOICE });
-    }
   }
 
-  function finishSession() {
+  async function finishSession() {
     const { name, category, items, appMode, shareCode, guessPolicy, deckPolicy, onFinish } = finishMetaRef.current;
+    const endedAt = new Date().toISOString();
+    try {
+      await markLocalSessionCompleted(sessionIdRef.current, endedAt);
+    } catch {
+      // Google Sheets/export flow should not depend on local recovery writes.
+    }
+
     onFinish(buildSoloSessionPayload({
       name,
       category,
@@ -206,7 +486,7 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
       deckPolicy,
       completedResults: resultsRef.current,
       startedAt: sessionStartRef.current,
-      endedAt: new Date().toISOString(),
+      endedAt,
     }));
   }
 
@@ -248,6 +528,17 @@ export function TrainingRoom({ items, slots, category, name, appMode = SESSION_M
     });
   }
 
+  useEffect(() => {
+    const onPageHide = () => recordInterruption("pagehide");
+    const onBeforeUnload = () => recordInterruption("beforeunload");
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, []);
+
   function handleBackToSetup() {
     recordInterruption("backToSetup");
     onBack?.();
@@ -266,7 +557,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
       setGuesses([]);
       setItemIdx(0);
       setHeardPhrase("");
-      setHeardMatch("");
+      setHeardMatchInfo(null);
     }, delayMs);
   }
 
@@ -277,7 +568,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
     }
 
     setItemIdx(matchedIdx);
-    speak(itemName, { voice: isHotlineOpenRef.current ? HOTLINE_VOICE : undefined });
+    speak(itemName, { voice: getCurrentOptionVoice() });
   }
 
   function finalizeCardResult(newGuesses, options = {}) {
@@ -303,6 +594,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
     const isResolved = guessNames[guessNames.length - 1] === target.name;
     const firstGuess = guessNames[0] ?? null;
     const resolvedNotes = options.notes ?? (overlayOpens > 0 ? "training_overlay_used" : "");
+    const voiceNote = getVoiceNoteForTrial(slotIdx);
     const slotResult = {
       target: target.name,
       guesses: guessNames,
@@ -317,6 +609,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
       timeOfDayTag: "",
       timeOfDayIsEstimated: false,
       notes: resolvedNotes,
+      voice_note: voiceNote,
       trainingOverlayOpens: overlayOpens,
       trainingOverlayMs: overlayMs,
     };
@@ -324,6 +617,13 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
     const nextResults = [...results, slotResult];
     setResults(nextResults);
     resultsRef.current = nextResults;
+    void (async () => {
+      try {
+        await appendTrialToIndexedDB(sessionIdRef.current, slotResult, slotIdx + 1);
+      } catch {
+        // Keep the UI responsive even if local persistence is unavailable.
+      }
+    })();
     pendingConfirmationRef.current = null;
     setPendingConfirmation(null);
     setHeardPhrase("");
@@ -378,17 +678,27 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
   }
 
   useEffect(() => {
-    if (!isSpeechRecognitionSupported()) {
+    setVoiceProviderMessage("");
+    const voiceProvider = createVoiceProvider(voiceProviderId);
+    setVoiceProviderName(voiceProvider.providerName);
+
+    const isAvailable = voiceProvider.isAvailable?.() ?? voiceProvider.isSupported?.() ?? false;
+    if (!isAvailable) {
       stopListening();
+      setMicState("unsupported");
+      setVoiceProviderMessage("Not available yet");
       return;
     }
 
-    recognitionRef.current = startContinuousListening({
-      onStateChange: (state) => setMicState(state),
-      onError: () => setMicState("error"),
-      onResult: ({ transcript }) => {
+    const unsubscribeState = voiceProvider.onStateChange?.((state) => setMicState(state));
+    const unsubscribeError = voiceProvider.onError((error) => {
+      setMicState("error");
+      setVoiceProviderMessage(error?.message || "Voice provider error");
+    });
+    const unsubscribeResult = voiceProvider.onResult(({ transcript }) => {
         const raw = String(transcript ?? "").trim();
         if (!raw) return;
+        if (voiceNoteRecordingRef.current) return;
 
         setHeardPhrase(raw);
 
@@ -506,21 +816,39 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
         pendingConfirmationRef.current = match.match;
         setPendingConfirmation(match.match);
         speak(`Did you say ${match.match}?`);
-      },
-    });
+      });
 
-    return () => stopListening();
-  }, [phase, done]);
+    recognitionRef.current = voiceProvider;
+    voiceProvider.start();
+
+    return () => {
+      unsubscribeResult?.();
+      unsubscribeError?.();
+      unsubscribeState?.();
+      stopListening();
+    };
+  }, [phase, done, voiceProviderId]);
 
   useEffect(() => {
     const handler = (e) => {
-      const { phase, slotIdx, guesses, results, target } = latest.current;
-      const { onFinish, slotCount } = finishMetaRef.current;
+      const { phase, guesses, target } = latest.current;
 
-      if ((e.code === "ControlLeft" || e.code === "ControlRight") && phase === "test") {
+      if (e.code === "ControlLeft" || e.code === "ControlRight") {
         if (e.repeat) return;
         e.preventDefault();
-        toggleHotline();
+        if (phase === "training") {
+          beginTestPhase();
+        } else if (phase === "test") {
+          toggleHotline();
+        }
+        return;
+      }
+
+      if (e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (!e.repeat) {
+          startVoiceNoteRecording();
+        }
         return;
       }
 
@@ -529,7 +857,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
         setItemIdx(prev => {
           const deck = displayItemsRef.current;
           const next = prev === 0 ? deck.length - 1 : prev - 1;
-          speak(deck[next].name, { voice: isHotlineOpenRef.current ? HOTLINE_VOICE : undefined });
+          speak(deck[next].name, { voice: getCurrentOptionVoice() });
           return next;
         });
         return;
@@ -539,15 +867,9 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
         setItemIdx(prev => {
           const deck = displayItemsRef.current;
           const next = prev === deck.length - 1 ? 0 : prev + 1;
-          speak(deck[next].name, { voice: isHotlineOpenRef.current ? HOTLINE_VOICE : undefined });
+          speak(deck[next].name, { voice: getCurrentOptionVoice() });
           return next;
         });
-        return;
-      }
-      if (e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        const currentItem = displayItemsRef.current[itemIdxRef.current];
-        if (currentItem) speak(currentItem.name, { voice: isHotlineOpenRef.current ? HOTLINE_VOICE : undefined });
         return;
       }
       if (e.key.toLowerCase() === "x" && phase === "test" && !doneRef.current && !isHotlineOpenRef.current) {
@@ -573,26 +895,37 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
         submitGuess(guessName);
         return;
       }
-      if (e.code === "Enter") {
+      if (e.code === "Enter" && doneRef.current) {
         e.preventDefault();
-        if (phase === "test" && isHotlineOpenRef.current) {
-          return;
-        }
-        if (phase === "training") { beginTestPhase(); return; }
-        if (doneRef.current) { finishSession(); return; }
+        finishSession();
+        return;
       }
-      if ((e.code === "ShiftLeft" || e.code === "ShiftRight") && phase === "test" && target) {
+      if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
+        if (e.repeat) return;
         e.preventDefault();
-        if (isHotlineOpenRef.current) {
-          const currentItem = displayItemsRef.current[itemIdxRef.current];
-          if (currentItem) speak(currentItem.name, { voice: HOTLINE_VOICE });
-          return;
-        }
-        speak((CARD_ORDINALS[slotIdx] || ("Card " + (slotIdx + 1))) + " card.");
+        speakModeInstructions(getCurrentMode(), { force: true });
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key.toLowerCase() !== "s") {
+        return;
+      }
+
+      e.preventDefault();
+      stopVoiceNoteRecording();
+    };
+
+    window.addEventListener("keyup", handler);
+    window.addEventListener("blur", stopVoiceNoteRecording);
+    return () => {
+      window.removeEventListener("keyup", handler);
+      window.removeEventListener("blur", stopVoiceNoteRecording);
+    };
   }, []);
 
   const targetItem = target ? lookup[target.name] : null;
@@ -605,7 +938,6 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
     ? (bgItem?.hex ?? "#111118")
     : `linear-gradient(90deg, ${bgItem?.hex ?? "#1a1a2a"}66 0%, ${bgItem?.hex ?? "#1a1a2a"}2e 18%, #1a1a2a 50%, ${bgItem?.hex ?? "#1a1a2a"}2e 82%, ${bgItem?.hex ?? "#1a1a2a"}66 100%)`;
   const guessTrayMinWidth = "14ch";
-  const showVoiceDebug = Boolean(heardPhrase || heardMatchInfo || pendingConfirmation);
   const micStatusLabel = micState === "retrying" ? "listening" : micState;
   const micStatusColor = micStatusLabel === "listening" ? "#f472b6" : "rgba(255,255,255,0.45)";
   const micIsListening = micStatusLabel === "listening";
@@ -649,18 +981,17 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
       : detectedMatchPercent >= 80 ? "#eab308"
       : detectedMatchPercent >= 65 ? "#f97316"
       : "#ef4444";
-  const displayMatchPercentColor =
-    displayMatchPercent == null ? "rgba(255,255,255,0.4)"
-      : displayMatchPercent >= 95 ? "#22c55e"
-      : displayMatchPercent >= 80 ? "#eab308"
-      : displayMatchPercent >= 65 ? "#f97316"
-      : "#ef4444";
   const matchPercentColor =
     shownMatchPercent == null ? "rgba(255,255,255,0.4)"
       : shownMatchPercent >= 95 ? "#22c55e"
       : shownMatchPercent >= 80 ? "#eab308"
       : shownMatchPercent >= 65 ? "#f97316"
       : "#ef4444";
+  const activeVoiceNoteFragments = phase === "test" ? (voiceNoteFragmentsBySlot[slotIdx] || []) : [];
+  const activeVoiceNoteCount = activeVoiceNoteFragments.length;
+  const voiceNoteStatusText = voiceNoteUi.status === "recording"
+    ? "● Recording note..."
+    : voiceNoteUi.error || voiceNoteUi.message || "";
 
   const renderGuessTray = () => (
     <div style={{ display: "flex", justifyContent: "center", width: "100%" }}>
@@ -668,7 +999,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
         <div style={{ minWidth: "100%", width: "max-content", display: "flex", gap: "4px", flexWrap: "nowrap", justifyContent: "center", alignItems: "center", margin: "0 auto" }}>
           {(isHotlineOpen || guesses.length === 0) && (
             <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.28)", letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
-              {isHotlineOpen ? "Guessing disabled" : "Guess Path"}
+              {isHotlineOpen ? "Calibration active" : "Guess Path"}
             </span>
           )}
           {!isHotlineOpen && guesses.length > 0 && (
@@ -692,32 +1023,58 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
     </div>
   );
 
+  const renderModeFlowTabs = () => {
+    const isCalibrationActive = phase === "training" || isHotlineOpen;
+    const isTestActive = phase === "test" && !isHotlineOpen;
+    const testLabel = phase === "training" ? "Begin Test" : "Test";
+    const testSubtext = phase === "training"
+      ? "Responses recorded"
+      : isHotlineOpen
+        ? "Responses paused"
+        : "Responses recorded";
+
+    return (
+      <div style={{ display: "flex", alignItems: "stretch", gap: "8px", fontSize: "0.86rem", fontWeight: 700, letterSpacing: "0.08em", color: "var(--color-text, #1F1F1F)", background: "rgba(255,255,255,0.92)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "14px", padding: "6px", boxShadow: "0 10px 24px rgba(31,31,31,0.10)" }}>
+        <button
+          onClick={() => {
+            if (phase === "test") {
+              toggleHotline(true);
+            }
+          }}
+          disabled={phase === "training"}
+          style={{ minWidth: "145px", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", background: isCalibrationActive ? "#FFF4E3" : "transparent", border: "1px solid " + (isCalibrationActive ? "rgba(197,139,43,0.55)" : "transparent"), borderRadius: "10px", padding: "9px 14px", cursor: phase === "training" ? "default" : "pointer", color: isCalibrationActive ? "var(--color-warning, #C58B2B)" : "var(--color-subtext, #6B6B6B)", fontFamily: "inherit", letterSpacing: "0.08em", textTransform: "uppercase", boxShadow: isCalibrationActive ? "0 8px 18px rgba(197,139,43,0.14)" : "none" }}
+        >
+          <span style={{ fontSize: "0.95rem", lineHeight: 1, fontWeight: 800 }}>Calibration</span>
+          <span style={{ fontSize: "0.62rem", lineHeight: 1.1, opacity: 0.78, letterSpacing: "0.04em", textTransform: "none" }}>Responses not recorded</span>
+        </button>
+        <button
+          onClick={() => {
+            if (phase === "training") {
+              beginTestPhase();
+            } else {
+              toggleHotline(false);
+            }
+          }}
+          style={{ minWidth: "145px", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", background: isTestActive ? "#E7F0EC" : "transparent", border: "1px solid " + (isTestActive ? "rgba(47,93,80,0.45)" : "transparent"), borderRadius: "10px", padding: "9px 14px", cursor: "pointer", color: isTestActive ? "var(--color-primary, #2F5D50)" : "var(--color-subtext, #6B6B6B)", fontFamily: "inherit", letterSpacing: "0.08em", textTransform: "uppercase", boxShadow: isTestActive ? "0 8px 18px rgba(47,93,80,0.14)" : "none" }}
+        >
+          <span style={{ fontSize: "0.95rem", lineHeight: 1, fontWeight: 800 }}>{testLabel}</span>
+          <span style={{ fontSize: "0.62rem", lineHeight: 1.1, opacity: 0.78, letterSpacing: "0.04em", textTransform: "none" }}>{testSubtext}</span>
+        </button>
+      </div>
+    );
+  };
+  const showGuessPathTray = false;
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: "'Georgia', serif", background: bg, transition: "background 0.25s", overflowX: "hidden", position: "relative" }}>
-      <div style={{ background: "#141420", padding: "14px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #1c1c28" }}>
+      <div style={{ background: "var(--color-surface, #FFFFFF)", padding: "14px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--color-border, #E6E2D9)", boxShadow: "0 6px 18px rgba(31, 31, 31, 0.05)", zIndex: 40 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
-          <div style={{ fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "1.2rem", fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", background: "linear-gradient(120deg, #93c5fd 0%, #a78bfa 40%, #e879f9 70%, #f9a8d4 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+          <div style={{ fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "1.2rem", fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--color-primary, #2F5D50)" }}>
             Mindsight
           </div>
-          {phase === "test" && (
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.82rem", fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c9c3e5", background: "#111118", border: "1px solid #3a3a55", borderRadius: "999px", padding: "5px", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)" }}>
-              <button
-                onClick={() => toggleHotline(false)}
-                style={{ background: !isHotlineOpen ? "#2b2b44" : "transparent", border: "1px solid " + (!isHotlineOpen ? "#93c5fd66" : "transparent"), borderRadius: "999px", padding: "7px 14px", cursor: "pointer", color: !isHotlineOpen ? "#f0ece4" : "rgba(201,195,229,0.65)", fontFamily: "inherit", letterSpacing: "0.14em", textTransform: "uppercase", boxShadow: !isHotlineOpen ? "0 0 0 1px rgba(147,197,253,0.10), 0 8px 18px rgba(59,130,246,0.10)" : "none" }}
-              >
-                Test
-              </button>
-              <button
-                onClick={() => toggleHotline(true)}
-                style={{ background: isHotlineOpen ? "#3b2a06" : "transparent", border: "1px solid " + (isHotlineOpen ? "#fbbf24aa" : "transparent"), borderRadius: "999px", padding: "7px 14px", cursor: "pointer", color: isHotlineOpen ? "#fde68a" : "rgba(201,195,229,0.65)", fontFamily: "inherit", letterSpacing: "0.14em", textTransform: "uppercase", boxShadow: isHotlineOpen ? "0 0 0 1px rgba(251,191,36,0.18), 0 8px 18px rgba(245,158,11,0.10)" : "none" }}
-              >
-                Training
-              </button>
-            </div>
-          )}
-          {phase === "test" && <div style={{ fontSize: "0.7rem", color: "#6060a0" }}>{name}</div>}
+          {phase === "test" && <div style={{ fontSize: "0.7rem", color: "var(--color-subtext, #6B6B6B)" }}>{name}</div>}
         </div>
-        <button onClick={handleBackToSetup} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "8px 20px", cursor: "pointer", fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", boxShadow: "0 2px 16px #7c3aed55" }}>← Setup</button>
+        <button onClick={handleBackToSetup} style={{ background: "var(--color-primary, #2F5D50)", border: "none", borderRadius: "8px", color: "white", padding: "8px 20px", cursor: "pointer", fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", boxShadow: "0 10px 24px rgba(47, 93, 80, 0.18)" }}>← Setup</button>
       </div>
 
       <div style={{ flex: 1, display: "flex", alignItems: "stretch", justifyContent: "center", width: "100%" }}>
@@ -745,7 +1102,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
       </div>
 
       <div style={{ background: stageBackground, padding: "16px 24px 18px", display: "flex", flexDirection: "column", gap: "8px", position: "sticky", bottom: 0, zIndex: 30, transition: "background 0.25s" }}>
-        {false && phase === "test" && <div style={{ display: "flex", justifyContent: "center" }}>
+        {showGuessPathTray && phase === "test" && <div style={{ display: "flex", justifyContent: "center" }}>
           <div style={{ minHeight: "40px", maxHeight: "40px", minWidth: guessTrayMinWidth, maxWidth: "100%", overflowX: "auto", overflowY: "hidden", padding: "6px 10px", borderRadius: "10px", background: "#1f1f2d", border: "1px solid #303048", boxSizing: "border-box" }}>
             <div style={{ minWidth: "100%", width: "max-content", display: "flex", gap: "4px", flexWrap: "nowrap", justifyContent: "center", alignItems: "center", margin: "0 auto" }}>
             {phase === "test" && (isHotlineOpen || guesses.length === 0) && (
@@ -787,7 +1144,7 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
                     key={c.name}
                     onClick={() => {
                       setItemIdx(i);
-                      speak(c.name);
+                      speak(c.name, { voice: getCurrentOptionVoice() });
                     }}
                     style={{
                       display: "flex",
@@ -820,14 +1177,23 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: "8px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             {phase === "training" && (
-              <button onClick={onInstructions} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "8px 20px", cursor: "pointer", fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", boxShadow: "0 2px 16px #7c3aed55" }}>← Instructions</button>
+              <button onClick={onInstructions} style={{ background: "var(--color-primary, #2F5D50)", border: "none", borderRadius: "8px", color: "white", padding: "8px 20px", cursor: "pointer", fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", boxShadow: "0 10px 24px rgba(47, 93, 80, 0.18)" }}>← Instructions</button>
             )}
+            <button
+              onClick={() => setModeInstructionsEnabled((enabled) => !enabled)}
+              style={{ background: modeInstructionsEnabled ? "#E7F0EC" : "transparent", border: "1px solid " + (modeInstructionsEnabled ? "rgba(47, 93, 80, 0.35)" : "var(--color-border, #E6E2D9)"), borderRadius: "8px", color: modeInstructionsEnabled ? "var(--color-primary, #2F5D50)" : "var(--color-subtext, #6B6B6B)", padding: "8px 12px", cursor: "pointer", fontFamily: "inherit", fontSize: "0.74rem", letterSpacing: "0.06em" }}
+              title="Toggle extra spoken instructions after mode names"
+            >
+              Instructions {modeInstructionsEnabled ? "on" : "off"}
+            </button>
           </div>
 
           <div style={{ display: "flex", justifyContent: "center" }}>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", background: "#252535", border: "1px solid #3a3a55", borderRadius: "10px", padding: "10px 16px", fontFamily: "inherit", minWidth: "320px" }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+            {renderModeFlowTabs()}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", background: "rgba(255,255,255,0.92)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "10px", padding: "10px 16px", fontFamily: "inherit", minWidth: "320px", boxShadow: "0 10px 24px rgba(31, 31, 31, 0.12)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", color: micStatusColor, width: "28px", height: "28px", borderRadius: "999px", background: micIsListening ? "#f472b61a" : "transparent", boxShadow: micIsListening ? "0 0 0 2px #f472b633, 0 0 18px #f472b644" : "none", animation: micIsListening ? "mindsightMicPulse 1.2s ease-in-out infinite" : "none", flexShrink: 0 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", color: micStatusColor, width: "28px", height: "28px", borderRadius: "999px", background: micIsListening ? "rgba(47,93,80,0.12)" : "transparent", boxShadow: micIsListening ? "0 0 0 2px rgba(47,93,80,0.18), 0 0 18px rgba(47,93,80,0.20)" : "none", animation: micIsListening ? "mindsightMicPulse 1.2s ease-in-out infinite" : "none", flexShrink: 0 }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 1 0 10 0Z"/>
                 </svg>
@@ -836,11 +1202,11 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
                 style={{
                   minWidth: 0,
                   flex: 1,
-                  background: "#1f1f2d",
-                  border: "1px solid #3a3a55",
+                  background: "var(--color-surface, #FFFFFF)",
+                  border: "1px solid var(--color-border, #E6E2D9)",
                   borderRadius: "10px",
                   padding: "8px 10px",
-                  color: heardPhrase ? "#f0ece4" : "rgba(255,255,255,0.40)",
+                  color: heardPhrase ? "var(--color-text, #1F1F1F)" : "var(--color-subtext, #6B6B6B)",
                   fontSize: "0.72rem",
                   lineHeight: 1.2,
                   whiteSpace: "nowrap",
@@ -851,6 +1217,34 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
               >
                 {heardPhrase || "..."}
               </div>
+              <select
+                value={voiceProviderId}
+                onChange={(event) => setVoiceProviderId(event.target.value)}
+                title={VOICE_PROVIDER_OPTIONS.find((option) => option.id === voiceProviderId)?.description || voiceProviderName}
+                style={{
+                  background: "var(--color-surface, #FFFFFF)",
+                  border: "1px solid var(--color-border, #E6E2D9)",
+                  borderRadius: "8px",
+                  color: "var(--color-text, #1F1F1F)",
+                  padding: "7px 8px",
+                  fontFamily: "inherit",
+                  fontSize: "0.68rem",
+                  letterSpacing: "0.04em",
+                  maxWidth: "150px",
+                  cursor: "pointer",
+                }}
+              >
+                {VOICE_PROVIDER_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id} style={{ background: "#FFFFFF", color: "#1F1F1F" }}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {voiceProviderMessage && (
+                <span style={{ fontSize: "0.58rem", color: "#fca5a5", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                  {voiceProviderMessage}
+                </span>
+              )}
               {phase === "test" && (
                 <>
                   <span style={{ width: "2px", height: "18px", background: "rgba(255,255,255,0.4)", margin: "0 4px" }} />
@@ -888,6 +1282,17 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
               )}
               </div>
 
+              {phase === "test" && (voiceNoteStatusText || activeVoiceNoteCount > 0) && (
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", minHeight: "18px", color: voiceNoteUi.error ? "#ef4444" : voiceNoteUi.status === "recording" ? "#dc2626" : "var(--color-primary, #2F5D50)", fontSize: "0.68rem", lineHeight: 1.2, width: "100%", justifyContent: "center" }}>
+                  {voiceNoteStatusText && <span style={{ whiteSpace: "nowrap" }}>{voiceNoteStatusText}</span>}
+                  {activeVoiceNoteCount > 0 && (
+                    <span style={{ color: "var(--color-subtext, #6B6B6B)", whiteSpace: "nowrap" }}>
+                      [{activeVoiceNoteCount} note fragment{activeVoiceNoteCount === 1 ? "" : "s"} attached]
+                    </span>
+                  )}
+                </div>
+              )}
+
               {phase === "test" ? (
                 renderGuessTray()
               ) : (
@@ -916,14 +1321,12 @@ function advanceToNextCard(currentSlotIdx, slotCount, delayMs) {
                 </div>
               )}
             </div>
+            </div>
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "4px", flexWrap: "wrap", alignItems: "center" }}>
-            {phase === "training" && (
-              <button onClick={beginTestPhase} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "9px 24px", fontSize: "0.82rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>Begin Test →</button>
-            )}
             {done && (
-              <button onClick={finishSession} style={{ background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)", border: "none", borderRadius: "8px", color: "white", padding: "9px 24px", fontSize: "0.82rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 2px 20px #7c3aed88", animation: "pulse 1.5s ease-in-out infinite" }}>Results →</button>
+              <button onClick={finishSession} style={{ background: "var(--color-primary, #2F5D50)", border: "none", borderRadius: "8px", color: "white", padding: "9px 24px", fontSize: "0.82rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 10px 24px rgba(47, 93, 80, 0.22)", animation: "pulse 1.5s ease-in-out infinite" }}>Results →</button>
             )}
           </div>
         </div>

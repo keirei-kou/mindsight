@@ -12,18 +12,27 @@ const ALIASES = {
   Five: ["five", "fife", "hive", "5", "55"],
   Six: ["six", "styx", "sticks", "dicks", "sicks", "sex", "sic", "6", "66"],
   Circle: ["circle", "circles", "serkle"],
-  Oval: ["oval", "ovel", "over", "mobile", "moval", "oh val"],
+  Oval: ["oval", "ovel", "over", "mobile", "moval", "oh val", "ovo", "ovum"],
   Square: ["square", "squaree", "scare"],
   Rectangle: ["rectangle", "rectangular", "wreck tangle", "rect angle"],
   Triangle: ["triangle", "try angle", "tri angle"],
   Diamond: ["diamond", "diamon", "diamondd"],
   Star: ["star", "starr"],
-  Wavy: ["wavy", "wavey", "wavyy"],
+  // Experimental from Browser Speech diagnostics: recurring but more false-positive prone than canonical aliases.
+  Wavy: ["wavy", "wavey", "wavyy", "waiting"],
   Cross: ["cross", "criss", "crisscross", "brought", "ross", "crossed", "kross"],
 };
 
 export const VOICE_COMMAND_ALIASES = {
   trainingRoom: [
+    "calibration",
+    "calibration room",
+    "go to calibration",
+    "go to calibration room",
+    "back to calibration",
+    "back to calibration room",
+    "return to calibration",
+    "return to calibration room",
     "training room",
     "training",
     "go to training room",
@@ -33,6 +42,8 @@ export const VOICE_COMMAND_ALIASES = {
   resumeTest: [
     "resume test",
     "resume",
+    "close calibration",
+    "close calibration room",
     "close training",
     "close training room",
     "close hotline",
@@ -41,6 +52,7 @@ export const VOICE_COMMAND_ALIASES = {
   ],
   beginTest: [
     "test",
+    "text",
     "begin test",
     "start test",
     "test started",

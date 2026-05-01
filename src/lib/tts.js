@@ -7,6 +7,10 @@ const staticAudioCache = new Map();
 
 const STATIC_CLIP_MAP = {
   "training room": "prompts/training-room.wav",
+  "calibration": "prompts/calibration.wav",
+  "press a or d to cycle through options submission is paused": "prompts/calibration-instructions.wav",
+  "test mode": "prompts/test-mode.wav",
+  "press a or d to cycle through options and space to submit the response": "prompts/test-mode-instructions.wav",
   "test started": "prompts/test-started.wav",
   "test resumed": "prompts/test-resumed.wav",
   "correct": "prompts/correct.wav",
@@ -221,4 +225,54 @@ export function speak(text, options = {}) {
   }
 
   speakWithBrowser(text, options);
+}
+
+function playSpeechClip(text, options = {}) {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined") {
+      resolve();
+      return;
+    }
+
+    const voiceOverride = typeof options.voice === "string" && options.voice.trim()
+      ? options.voice.trim()
+      : null;
+    const staticClipUrl = voiceOverride
+      ? getStaticClipUrlForVoice(text, voiceOverride)
+      : getStaticClipUrl(text);
+
+    if (!staticClipUrl) {
+      speak(text, options);
+      window.setTimeout(resolve, 1200);
+      return;
+    }
+
+    stopSpeaking();
+    const audio = getCachedStaticAudio(staticClipUrl);
+    audio.currentTime = 0;
+    activeAudio = audio;
+    audio.onended = () => {
+      if (activeAudio === audio) {
+        activeAudio = null;
+      }
+      resolve();
+    };
+    audio.onerror = () => {
+      if (activeAudio === audio) {
+        activeAudio = null;
+      }
+      resolve();
+    };
+
+    void audio.play().catch(() => {
+      if (activeAudio === audio) activeAudio = null;
+      resolve();
+    });
+  });
+}
+
+export async function speakSequence(texts, options = {}) {
+  for (const text of texts) {
+    await playSpeechClip(text, options);
+  }
 }

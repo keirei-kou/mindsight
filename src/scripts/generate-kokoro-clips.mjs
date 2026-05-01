@@ -14,6 +14,10 @@ const outDir = process.env.KOKORO_OUTDIR
 
 const clips = [
   ["training-room", "Training room."],
+  ["calibration", "Calibration."],
+  ["calibration-instructions", "Press \"A\" or \"D\" to cycle through options. Submission is paused."],
+  ["test-mode", "Test Mode."],
+  ["test-mode-instructions", "Press \"A\" or \"D\" to cycle through options, and press \"space\" to submit the response."],
   ["test-started", "Test started."],
   ["test-resumed", "Test resumed."],
   ["correct", "Correct!"],
@@ -136,6 +140,10 @@ function getClipSubfolder(slug) {
   if (slug.endsWith("-card")) return "cards";
   if ([
     "training-room",
+    "calibration",
+    "calibration-instructions",
+    "test-mode",
+    "test-mode-instructions",
     "test-started",
     "test-resumed",
     "correct",
