@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+
+DEFAULT_COMMAND_VOCABULARY: tuple[str, ...] = (
+    "red",
+    "blue",
+    "yellow",
+    "green",
+    "orange",
+    "purple",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "circle",
+    "oval",
+    "square",
+    "rectangle",
+    "triangle",
+    "diamond",
+    "star",
+    "wavy",
+    "cross",
+    "calibration",
+    "test",
+    "results",
+    "space",
+    "submit",
+)
+
+
+COMMAND_ALIASES: dict[str, str] = {
+    "read": "red",
+    "redd": "red",
+    "bread": "red",
+    "fred": "red",
+    "blew": "blue",
+    "blu": "blue",
+    "to": "two",
+    "too": "two",
+    "tu": "two",
+    "won": "one",
+    "wun": "one",
+    "for": "four",
+    "fore": "four",
+    "free": "three",
+    "tree": "three",
+}
