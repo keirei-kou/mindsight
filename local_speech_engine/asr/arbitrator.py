@@ -15,6 +15,7 @@ from .arbitration_types import (
 )
 from .base import AsrProviderError, AsrTranscript
 from .normalization import COMMAND_PROFILE, normalize_profile, normalize_transcript_candidate
+from .policies import HYBRID_DEFAULT_POLICY, ArbitrationPolicy, resolve_policy
 from .vocabulary import DEFAULT_COMMAND_VOCABULARY
 
 
@@ -39,10 +40,12 @@ class AsrArbiter:
         filename_or_path: str | None,
         provider_names: Iterable[str] | None = None,
         mode: str = COMMAND_PROFILE,
+        policy: str | None = HYBRID_DEFAULT_POLICY,
         vad_boundary: VadBoundary | None = None,
     ) -> ArbitrationResult:
         path = self.registry.resolve_recording_path(filename_or_path)
         selected_providers = self._resolve_provider_names(provider_names)
+        resolved_policy, policy_details = resolve_policy(policy)
         segment = build_audio_segment_ref(path, vad_boundary=vad_boundary)
         runs: list[AsrProviderRun] = []
         candidates: list[NormalizedCandidate] = []
@@ -75,13 +78,21 @@ class AsrArbiter:
                 )
             )
 
-        final_text, final_command, decision_reason, details = self._choose(candidates, runs, resolved_mode)
+        final_text, final_command, decision_reason, policy_scores, details = self._choose(
+            candidates,
+            runs,
+            resolved_mode,
+            resolved_policy,
+        )
+        details.update(policy_details)
         return ArbitrationResult(
             mode=resolved_mode,
             filename=path.name,
             final_text=final_text,
             final_command=final_command,
             decision_reason=decision_reason,
+            policy_name=resolved_policy.name,
+            policy_scores=policy_scores,
             provider_runs=tuple(runs),
             candidates=tuple(candidates),
             selected_providers=tuple(selected_providers),
@@ -94,6 +105,7 @@ class AsrArbiter:
         *,
         provider_names: Iterable[str] | None = None,
         mode: str = COMMAND_PROFILE,
+        policy: str | None = HYBRID_DEFAULT_POLICY,
         vad_boundary: VadBoundary | None = None,
     ) -> ArbitrationResult:
         latest_path = self.registry.latest_recording_path()
@@ -101,6 +113,7 @@ class AsrArbiter:
             filename_or_path=str(latest_path),
             provider_names=provider_names,
             mode=mode,
+            policy=policy,
             vad_boundary=vad_boundary,
         )
 
@@ -128,9 +141,16 @@ class AsrArbiter:
         candidates: list[NormalizedCandidate],
         runs: list[AsrProviderRun],
         mode: str,
-    ) -> tuple[str, str | None, str, dict[str, Any]]:
+        policy: ArbitrationPolicy,
+    ) -> tuple[str, str | None, str, dict[str, Any], dict[str, Any]]:
         if not candidates:
-            return "", None, "no_result", {"successful_provider_count": sum(1 for run in runs if run.ok)}
+            return (
+                "",
+                None,
+                "no_result",
+                {"policy": policy.name, "groups": {}},
+                {"successful_provider_count": sum(1 for run in runs if run.ok)},
+            )
 
         groups: dict[str, list[NormalizedCandidate]] = defaultdict(list)
         for candidate in candidates:
@@ -142,7 +162,7 @@ class AsrArbiter:
             for key, group in groups.items()
             if key
         ]
-        scored_groups.sort(key=lambda item: item[0], reverse=True)
+        scored_groups.sort(key=lambda item: self._policy_sort_key(item[0], policy), reverse=True)
         score, key, group = scored_groups[0]
         runner_up_score = scored_groups[1][0] if len(scored_groups) > 1 else None
         representative = sorted(
@@ -153,15 +173,30 @@ class AsrArbiter:
 
         final_command = representative.command if mode == COMMAND_PROFILE else None
         final_text = final_command or key
-        decision_reason = self._decision_reason(group, representative, score, runner_up_score)
-        return final_text, final_command, decision_reason, {
+        decision_reason = self._decision_reason(group, representative, score, runner_up_score, policy)
+        policy_scores = {
+            "policy": policy.name,
+            "score_order": list(policy.score_order),
+            "winning_key": key,
+            "winning_sort_key": list(self._policy_sort_key(score, policy)),
+            "winning_metrics": score,
+            "groups": {
+                group_key: {
+                    "metrics": group_score,
+                    "sort_key": list(self._policy_sort_key(group_score, policy)),
+                    "providers": [candidate.provider for candidate in group_candidates],
+                }
+                for group_score, group_key, group_candidates in scored_groups
+            },
+        }
+        return final_text, final_command, decision_reason, policy_scores, {
             "winning_key": key,
             "winning_score": {
-                "agreement_count": score[0],
-                "command_validity": score[1],
-                "average_similarity": score[2],
-                "average_confidence": score[3],
-                "provider_priority": score[4],
+                "agreement_count": score["agreement_count"],
+                "command_validity": score["command_validity"],
+                "average_similarity": score["average_similarity"],
+                "average_confidence": score["average_confidence"],
+                "provider_priority": score["provider_priority"],
             },
             "provider_count": len(runs),
             "successful_provider_count": sum(1 for run in runs if run.ok),
@@ -172,7 +207,7 @@ class AsrArbiter:
         group: list[NormalizedCandidate],
         run_by_provider: dict[str, AsrProviderRun],
         mode: str,
-    ) -> tuple[float, float, float, float, float]:
+    ) -> dict[str, float]:
         agreement_count = float(len(group))
         command_validity = 0.0
         if mode == COMMAND_PROFILE:
@@ -189,7 +224,16 @@ class AsrArbiter:
         ]
         average_confidence = (sum(confidences) / len(confidences)) if confidences else 0.0
         provider_priority = max(self._provider_priority_score(candidate.provider) for candidate in group)
-        return (agreement_count, command_validity, average_similarity, average_confidence, provider_priority)
+        return {
+            "agreement_count": agreement_count,
+            "command_validity": command_validity,
+            "average_similarity": average_similarity,
+            "average_confidence": average_confidence,
+            "provider_priority": provider_priority,
+        }
+
+    def _policy_sort_key(self, score: dict[str, float], policy: ArbitrationPolicy) -> tuple[float, ...]:
+        return tuple(score.get(field, 0.0) for field in policy.score_order)
 
     def _provider_priority_score(self, provider_name: str) -> float:
         normalized = str(provider_name or "").strip().lower()
@@ -203,25 +247,26 @@ class AsrArbiter:
         self,
         group: list[NormalizedCandidate],
         representative: NormalizedCandidate,
-        score: tuple[float, float, float, float, float],
-        runner_up_score: tuple[float, float, float, float, float] | None,
+        score: dict[str, float],
+        runner_up_score: dict[str, float] | None,
+        policy: ArbitrationPolicy,
     ) -> str:
         if len(group) > 1:
             return "agreement"
         if runner_up_score is not None:
-            reason_by_index = (
-                "agreement",
-                "vocabulary",
-                "vocabulary",
-                "confidence",
-                "provider_priority",
-            )
-            for index, value in enumerate(score):
-                if value != runner_up_score[index]:
-                    return reason_by_index[index]
+            reason_by_field = {
+                "agreement_count": "agreement",
+                "command_validity": "vocabulary",
+                "average_similarity": "vocabulary",
+                "average_confidence": "confidence",
+                "provider_priority": "provider_priority",
+            }
+            for field in policy.score_order:
+                if score.get(field, 0.0) != runner_up_score.get(field, 0.0):
+                    return reason_by_field.get(field, field)
         if representative.command:
             return "vocabulary"
-        if score[3] > 0:
+        if score.get("average_confidence", 0.0) > 0:
             return "confidence"
         return "provider_priority"
 

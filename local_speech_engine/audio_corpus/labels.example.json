@@ -1,0 +1,31 @@
+{
+  "session_id": "example_command_session",
+  "mode": "command",
+  "planned_sequence": [
+    "red",
+    "blue",
+    "green",
+    "yellow"
+  ],
+  "auto_label_by_order": true,
+  "files": [
+    {
+      "filename": "commands/colors/red_001.wav",
+      "expected": "red",
+      "notes": "Example only. Replace with a real WAV file copied from local_speech_engine/recordings."
+    },
+    {
+      "filename": "commands/colors/blue_001.wav",
+      "expected": "blue",
+      "notes": "Example only."
+    },
+    {
+      "filename": "commands/colors/green_001.wav",
+      "notes": "Expected value is filled from planned_sequence because auto_label_by_order is true."
+    },
+    {
+      "filename": "commands/colors/yellow_001.wav",
+      "notes": "Expected value is filled from planned_sequence because auto_label_by_order is true."
+    }
+  ]
+}

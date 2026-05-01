@@ -121,6 +121,8 @@ class ArbitrationResult:
     provider_runs: tuple[AsrProviderRun, ...]
     candidates: tuple[NormalizedCandidate, ...]
     selected_providers: tuple[str, ...]
+    policy_name: str = "hybrid_default"
+    policy_scores: dict[str, Any] = field(default_factory=dict)
     segment: AudioSegmentRef | None = None
     details: dict[str, Any] = field(default_factory=dict)
 
@@ -131,6 +133,8 @@ class ArbitrationResult:
             "final_text": self.final_text,
             "final_command": self.final_command,
             "decision_reason": self.decision_reason,
+            "policy_name": self.policy_name,
+            "policy_scores": self.policy_scores,
             "provider_runs": [run.to_dict() for run in self.provider_runs],
             "candidates": [candidate.to_dict() for candidate in self.candidates],
             "selected_providers": list(self.selected_providers),

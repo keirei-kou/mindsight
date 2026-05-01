@@ -533,6 +533,7 @@ class LocalVadService:
         provider_names: list[str] | None = None,
         filename_or_path: str | None = None,
         mode: str | None = None,
+        policy: str | None = None,
     ) -> None:
         resolved_filename = Path(filename_or_path or "").name
         selected_providers = provider_names or [self.asr_registry.default_provider_name]
@@ -541,6 +542,7 @@ class LocalVadService:
             filename=resolved_filename,
             providers=selected_providers,
             mode=mode or "command",
+            policy=policy or "hybrid_default",
         )
         try:
             result = await asyncio.to_thread(
@@ -548,6 +550,7 @@ class LocalVadService:
                 filename_or_path=filename_or_path,
                 provider_names=selected_providers,
                 mode=mode or "command",
+                policy=policy or "hybrid_default",
             )
             for provider_run in result.provider_runs:
                 provider_payload = provider_run.to_dict()
@@ -560,6 +563,7 @@ class LocalVadService:
                 filename=resolved_filename,
                 providers=selected_providers,
                 mode=mode or "command",
+                policy=policy or "hybrid_default",
                 **error.to_event_payload(),
             )
         except Exception as error:
@@ -569,6 +573,7 @@ class LocalVadService:
                 filename=resolved_filename,
                 providers=selected_providers,
                 mode=mode or "command",
+                policy=policy or "hybrid_default",
                 code="unexpected_error",
                 message=str(error),
                 setup_hint="Check the local speech engine console for details.",
@@ -582,6 +587,7 @@ class LocalVadService:
         *,
         provider_names: list[str] | None = None,
         mode: str | None = None,
+        policy: str | None = None,
     ) -> None:
         resolved_filename = ""
         try:
@@ -592,6 +598,7 @@ class LocalVadService:
             provider_names=provider_names,
             filename_or_path=resolved_filename,
             mode=mode,
+            policy=policy,
         )
 
     async def save_segment_to_corpus(
@@ -727,11 +734,13 @@ async def vad_websocket(websocket: WebSocket) -> None:
                     provider_names=parse_provider_names(payload.get("providers") or payload.get("provider")),
                     filename_or_path=payload.get("filename") or payload.get("path"),
                     mode=payload.get("mode"),
+                    policy=payload.get("policy"),
                 )
             elif command == "arbitrate_latest_segment":
                 await service.arbitrate_latest_segment(
                     provider_names=parse_provider_names(payload.get("providers") or payload.get("provider")),
                     mode=payload.get("mode"),
+                    policy=payload.get("policy"),
                 )
             elif command == "start_voice_note":
                 trial_index = payload.get("trial_index")
