@@ -1,0 +1,7 @@
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+sounddevice>=0.5,<1
+webrtcvad-wheels>=2.0.14,<3; python_version < "3.14"
+vosk>=0.3.45,<0.4
+# Optional after selecting a Sherpa ONNX model layout:
+# sherpa-onnx>=1.12,<2
