@@ -23,21 +23,21 @@ function SoloAccuracyGraph({ trials, guessPolicy }) {
   const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${scaleX(point.x)} ${scaleY(point.y)}`).join(' ');
 
   return (
-    <div style={{ width: "100%", maxWidth: "520px", background: "#111118", border: "1px solid #252530", borderRadius: "14px", padding: "18px 18px 12px", overflowX: "auto" }}>
-      <div style={{ fontSize: "0.78rem", color: "#b9b4d8", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "12px" }}>
+    <div style={{ width: "100%", maxWidth: "520px", background: "var(--color-surface, #FFFFFF)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "14px", padding: "18px 18px 12px", overflowX: "auto", boxShadow: "0 12px 30px rgba(31, 31, 31, 0.06)" }}>
+      <div style={{ fontSize: "0.78rem", color: "var(--color-subtext, #6B6B6B)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "12px" }}>
         {guessPolicy === GUESS_POLICIES.ONE_SHOT ? "First Guess % (Running) Over Time" : "Weighted Score Over Time"}
       </div>
       <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Solo accuracy graph">
         {yTicks.map((tick) => (
           <g key={tick}>
-            <line x1={padding.left} y1={scaleY(tick)} x2={width - padding.right} y2={scaleY(tick)} stroke="#252530" strokeDasharray="4 4" />
+            <line x1={padding.left} y1={scaleY(tick)} x2={width - padding.right} y2={scaleY(tick)} stroke="#E6E2D9" strokeDasharray="4 4" />
             <text x={padding.left - 10} y={scaleY(tick) + 4} fill="#7f7a9e" fontSize="11" textAnchor="end">
               {tick}
             </text>
           </g>
         ))}
-        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} stroke="#3a3a55" />
-        <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="#3a3a55" />
+        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} stroke="#BDB6AB" />
+        <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="#BDB6AB" />
         <text x={width / 2} y={height - 8} fill="#7f7a9e" fontSize="11" textAnchor="middle">
           Session Time
         </text>
@@ -78,21 +78,21 @@ function SoloHistoryGraph({ sessions }) {
   const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${scaleX(point.x)} ${scaleY(point.y)}`).join(' ');
 
   return (
-    <div style={{ width: "100%", maxWidth: "520px", background: "#111118", border: "1px solid #252530", borderRadius: "14px", padding: "18px 18px 12px", overflowX: "auto" }}>
-      <div style={{ fontSize: "0.78rem", color: "#b9b4d8", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "12px" }}>
+    <div style={{ width: "100%", maxWidth: "520px", background: "var(--color-surface, #FFFFFF)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "14px", padding: "18px 18px 12px", overflowX: "auto", boxShadow: "0 12px 30px rgba(31, 31, 31, 0.06)" }}>
+      <div style={{ fontSize: "0.78rem", color: "var(--color-subtext, #6B6B6B)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "12px" }}>
         Google Sheets Progress
       </div>
       <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Google Sheets session history graph">
         {yTicks.map((tick) => (
           <g key={tick}>
-            <line x1={padding.left} y1={scaleY(tick)} x2={width - padding.right} y2={scaleY(tick)} stroke="#252530" strokeDasharray="4 4" />
+            <line x1={padding.left} y1={scaleY(tick)} x2={width - padding.right} y2={scaleY(tick)} stroke="#E6E2D9" strokeDasharray="4 4" />
             <text x={padding.left - 10} y={scaleY(tick) + 4} fill="#7f7a9e" fontSize="11" textAnchor="end">
               {tick}
             </text>
           </g>
         ))}
-        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} stroke="#3a3a55" />
-        <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="#3a3a55" />
+        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} stroke="#BDB6AB" />
+        <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="#BDB6AB" />
         <text x={width / 2} y={height - 8} fill="#7f7a9e" fontSize="11" textAnchor="middle">
           Session Date
         </text>
@@ -164,7 +164,7 @@ export function SoloResults({ data, onRestart, googleAuth, googleSheet }) {
   const avgProx = proxArr.length ? Math.round(proxArr.reduce((a, b) => a + b, 0) / proxArr.length) : null;
   const isOneShot = guessPolicy === GUESS_POLICIES.ONE_SHOT;
   const modeCards = [
-    appMode === SESSION_MODES.SHARED ? "Shared Training" : appMode === SESSION_MODES.SOLO ? "Solo Training" : null,
+    appMode === SESSION_MODES.SHARED ? "Shared Calibration" : appMode === SESSION_MODES.SOLO ? "Solo Calibration" : null,
     guessPolicy ? (guessPolicy === GUESS_POLICIES.ONE_SHOT ? "One Shot" : "Repeat Until Correct") : null,
     deckPolicy ? (deckPolicy === DECK_POLICIES.BALANCED_DECK ? "Balanced Deck" : "Independent Draws") : null,
   ].filter(Boolean);
@@ -346,22 +346,22 @@ export function SoloResults({ data, onRestart, googleAuth, googleSheet }) {
   }, [filteredGoogleHistory, googleHistory, googleHistoryUser, googleHistoryUserNames, viewData.name]);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#141420", fontFamily: "'Georgia', serif", color: "#f0ece4", padding: "40px 24px", display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <div style={{ fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "2rem", fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", background: "linear-gradient(120deg, #93c5fd 0%, #a78bfa 40%, #e879f9 70%, #f9a8d4 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text", marginBottom: "6px" }}>Results</div>
-      <div style={{ fontSize: "0.7rem", color: "#6b5aaa", letterSpacing: "0.2em", marginBottom: "32px", textTransform: "uppercase" }}>{headerSubtitle}</div>
+    <div style={{ minHeight: "100vh", background: "var(--color-bg, #F7F6F2)", fontFamily: "'Georgia', serif", color: "var(--color-text, #1F1F1F)", padding: "40px 24px", display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <div style={{ fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "2rem", fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--color-primary, #2F5D50)", marginBottom: "6px" }}>Results</div>
+      <div style={{ fontSize: "0.7rem", color: "var(--color-subtext, #6B6B6B)", letterSpacing: "0.2em", marginBottom: "32px", textTransform: "uppercase" }}>{headerSubtitle}</div>
 
       {isRecoveredSession && !hasSavedRecovery && (
-        <div style={{ width: "100%", maxWidth: "520px", background: "#111118", border: "1px solid #f59e0b55", borderRadius: "12px", padding: "12px 14px", marginBottom: "18px", boxSizing: "border-box" }}>
+        <div style={{ width: "100%", maxWidth: "520px", background: "var(--color-surface, #FFFFFF)", border: "1px solid rgba(197, 139, 43, 0.4)", borderRadius: "12px", padding: "12px 14px", marginBottom: "18px", boxSizing: "border-box" }}>
           <div style={{ fontSize: "0.66rem", color: "#fbbf24", letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: "8px" }}>
             Recovered Session
           </div>
-          <div style={{ fontSize: "0.72rem", color: "#dbeafe", lineHeight: 1.6, marginBottom: "12px" }}>
+          <div style={{ fontSize: "0.72rem", color: "var(--color-text, #1F1F1F)", lineHeight: 1.6, marginBottom: "12px" }}>
             This test was recovered after an interruption. Save it to Google Sheets to keep it in your history.
           </div>
           <button
             onClick={saveInterruptedSessionToGoogle}
             disabled={isSavingToGoogle}
-            style={{ width: "100%", background: isSavingToGoogle ? "#1c1c28" : "transparent", border: "1px solid #34d39966", borderRadius: "10px", color: isSavingToGoogle ? "#6b7280" : "#34d399", padding: "12px 14px", fontSize: "0.82rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: isSavingToGoogle ? "wait" : "pointer" }}
+            style={{ width: "100%", background: isSavingToGoogle ? "var(--color-surface-soft, #FBFAF7)" : "transparent", border: "1px solid rgba(58, 125, 68, 0.4)", borderRadius: "10px", color: isSavingToGoogle ? "var(--color-subtext, #6B6B6B)" : "var(--color-success, #3A7D44)", padding: "12px 14px", fontSize: "0.82rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: isSavingToGoogle ? "wait" : "pointer" }}
           >
             {isSavingToGoogle ? "Saving..." : "Save to Google Sheets"}
           </button>
@@ -371,12 +371,12 @@ export function SoloResults({ data, onRestart, googleAuth, googleSheet }) {
       {googleHistory.length > 0 && (
         <div style={{ width: "100%", maxWidth: "520px", display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center", marginBottom: "18px" }}>
           <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-            <div style={{ fontSize: "0.66rem", color: "#93c5fd", letterSpacing: "0.16em", textTransform: "uppercase" }}>History</div>
+            <div style={{ fontSize: "0.66rem", color: "var(--color-primary, #2F5D50)", letterSpacing: "0.16em", textTransform: "uppercase" }}>History</div>
             {googleHistoryUserNames.length > 1 && (
               <select
                 value={googleHistoryUser || viewData.name || ""}
                 onChange={(event) => setGoogleHistoryUser(event.target.value)}
-                style={{ background: "#111118", border: "1px solid #252530", borderRadius: "10px", color: "#dbeafe", padding: "8px 10px", fontSize: "0.78rem" }}
+                style={{ background: "var(--color-surface, #FFFFFF)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "10px", color: "var(--color-text, #1F1F1F)", padding: "8px 10px", fontSize: "0.78rem" }}
               >
                 {googleHistoryUserNames.map((nameOption) => (
                   <option key={nameOption} value={nameOption}>
@@ -389,13 +389,13 @@ export function SoloResults({ data, onRestart, googleAuth, googleSheet }) {
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
             <button
               onClick={() => setViewMode("overview")}
-              style={{ background: viewMode === "overview" ? "#1f2937" : "transparent", border: "1px solid #252530", borderRadius: "10px", color: "#c9c3e5", padding: "8px 12px", fontSize: "0.72rem", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}
+              style={{ background: viewMode === "overview" ? "#E7F0EC" : "transparent", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "10px", color: "var(--color-primary, #2F5D50)", padding: "8px 12px", fontSize: "0.72rem", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}
             >
               Overview
             </button>
             <button
               onClick={() => setViewMode("session")}
-              style={{ background: viewMode === "session" ? "#1f2937" : "transparent", border: "1px solid #252530", borderRadius: "10px", color: "#c9c3e5", padding: "8px 12px", fontSize: "0.72rem", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}
+              style={{ background: viewMode === "session" ? "#E7F0EC" : "transparent", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "10px", color: "var(--color-primary, #2F5D50)", padding: "8px 12px", fontSize: "0.72rem", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}
             >
               Session
             </button>
@@ -445,8 +445,8 @@ export function SoloResults({ data, onRestart, googleAuth, googleSheet }) {
           <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
             <SoloHistoryGraph sessions={filteredGoogleHistory} />
           </div>
-          <div style={{ background: "#111118", border: "1px solid #252530", borderRadius: "14px", padding: "14px 16px" }}>
-            <div style={{ fontSize: "0.72rem", color: "#b9b4d8", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "10px" }}>
+          <div style={{ background: "var(--color-surface, #FFFFFF)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "14px", padding: "14px 16px", boxShadow: "0 12px 30px rgba(31, 31, 31, 0.06)" }}>
+            <div style={{ fontSize: "0.72rem", color: "var(--color-subtext, #6B6B6B)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "10px" }}>
               Sessions ({filteredGoogleHistory.length})
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -465,10 +465,10 @@ export function SoloResults({ data, onRestart, googleAuth, googleSheet }) {
                       setViewData(session);
                       setViewMode("session");
                     }}
-                    style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", textAlign: "left", background: "#181825", border: "1px solid #252530", borderRadius: "12px", padding: "12px 12px", cursor: "pointer" }}
+                    style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", textAlign: "left", background: "var(--color-surface-soft, #FBFAF7)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "12px", padding: "12px 12px", cursor: "pointer" }}
                   >
                     <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                      <div style={{ fontSize: "0.86rem", color: "#f0ece4", fontWeight: 600 }}>
+                      <div style={{ fontSize: "0.86rem", color: "var(--color-text, #1F1F1F)", fontWeight: 600 }}>
                         {session.name || "Session"}
                         {session.category ? <span style={{ marginLeft: "10px", fontSize: "0.68rem", color: "#6b5aaa", letterSpacing: "0.14em", textTransform: "uppercase" }}>{session.category}</span> : null}
                       </div>
@@ -495,18 +495,18 @@ export function SoloResults({ data, onRestart, googleAuth, googleSheet }) {
           {modeCards.length > 0 && (
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center", marginBottom: "20px" }}>
               {modeCards.map((label) => (
-                <div key={label} style={{ border: "1px solid #3a3a55", borderRadius: "999px", padding: "6px 12px", fontSize: "0.68rem", color: "#c9c3e5", letterSpacing: "0.08em", textTransform: "uppercase", background: "#181825" }}>
+                <div key={label} style={{ border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "999px", padding: "6px 12px", fontSize: "0.68rem", color: "var(--color-primary, #2F5D50)", letterSpacing: "0.08em", textTransform: "uppercase", background: "var(--color-surface, #FFFFFF)" }}>
                   {label}
                 </div>
               ))}
             </div>
           )}
           {shareCode && (
-            <div style={{ width: "100%", maxWidth: "520px", background: "#111118", border: "1px solid #252530", borderRadius: "12px", padding: "14px 16px", marginBottom: "20px", boxSizing: "border-box" }}>
-              <div style={{ fontSize: "0.66rem", color: "#93c5fd", letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: "8px" }}>
+            <div style={{ width: "100%", maxWidth: "520px", background: "var(--color-surface, #FFFFFF)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "12px", padding: "14px 16px", marginBottom: "20px", boxSizing: "border-box" }}>
+              <div style={{ fontSize: "0.66rem", color: "var(--color-primary, #2F5D50)", letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: "8px" }}>
                 Shared Session
               </div>
-              <div style={{ fontSize: "0.72rem", color: "#dbeafe", lineHeight: 1.7, wordBreak: "break-all", overflowWrap: "anywhere" }}>
+              <div style={{ fontSize: "0.72rem", color: "var(--color-text, #1F1F1F)", lineHeight: 1.7, wordBreak: "break-all", overflowWrap: "anywhere" }}>
                 {shareCode}
               </div>
             </div>
@@ -538,7 +538,7 @@ export function SoloResults({ data, onRestart, googleAuth, googleSheet }) {
             {results.map((r, i) => {
               const tgt = colors.find(c => c.name === r.target);
           return (
-            <div key={i} style={{ background: "#181825", borderRadius: "8px", padding: "10px 14px", borderLeft: `3px solid ${tgt?.hex}` }}>
+            <div key={i} style={{ background: "var(--color-surface, #FFFFFF)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "8px", padding: "10px 14px", borderLeft: `3px solid ${tgt?.hex}` }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "5px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <span style={{ fontSize: "1rem" }}>{tgt?.symbol}</span>
@@ -548,7 +548,7 @@ export function SoloResults({ data, onRestart, googleAuth, googleSheet }) {
                 <div style={{ display: "flex", gap: "10px", fontSize: "0.68rem" }}>
                   <span style={{ color: r.acc >= 70 ? "#22c55e" : r.acc >= 40 ? "#eab308" : "#ef4444" }}>Acc {r.acc}%</span>
                   {r.prox !== null && <span style={{ color: "#a78bfa" }}>Prox {r.prox}%</span>}
-                  {r.pattern && <span style={{ color: "#6060a0", fontStyle: "italic" }}>{r.pattern}</span>}
+                  {r.pattern && <span style={{ color: "var(--color-subtext, #6B6B6B)", fontStyle: "italic" }}>{r.pattern}</span>}
                 </div>
               </div>
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -565,7 +565,7 @@ export function SoloResults({ data, onRestart, googleAuth, googleSheet }) {
                     </div>
                   );
                 })}
-                {r.skipped && <span style={{ fontSize: "0.65rem", color: "#6060a0", fontStyle: "italic", alignSelf: "center" }}>skipped</span>}
+                {r.skipped && <span style={{ fontSize: "0.65rem", color: "var(--color-subtext, #6B6B6B)", fontStyle: "italic", alignSelf: "center" }}>skipped</span>}
               </div>
             </div>
           );
@@ -577,26 +577,26 @@ export function SoloResults({ data, onRestart, googleAuth, googleSheet }) {
       <div style={{ display: "flex", gap: "12px", marginTop: "32px", flexWrap: "wrap", justifyContent: "center" }}>
         <CsvImportButton
           onSelect={importCsv}
-          buttonStyle={{ background: "transparent", border: "1px solid #f59e0b66", borderRadius: "10px", color: "#fbbf24", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}
+          buttonStyle={{ background: "transparent", border: "1px solid rgba(197, 139, 43, 0.45)", borderRadius: "10px", color: "var(--color-warning, #C58B2B)", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}
           statusStyle={{ fontSize: "0.68rem", color: "#d6b06b", marginTop: "12px", letterSpacing: "0.04em", lineHeight: 1.6 }}
         />
         {googleHistory.length > 0 && (
-          <button onClick={exportUserHistoryCsv} style={{ background: "transparent", border: "1px solid #34d39966", borderRadius: "10px", color: "#34d399", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
+          <button onClick={exportUserHistoryCsv} style={{ background: "transparent", border: "1px solid rgba(58, 125, 68, 0.45)", borderRadius: "10px", color: "var(--color-success, #3A7D44)", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
             Download Selected User History
           </button>
         )}
-        <button onClick={exportSessionCsv} style={{ background: "transparent", border: "1px solid #22c55e66", borderRadius: "10px", color: "#22c55e", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
+        <button onClick={exportSessionCsv} style={{ background: "transparent", border: "1px solid rgba(58, 125, 68, 0.45)", borderRadius: "10px", color: "var(--color-success, #3A7D44)", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
           Download This Session
         </button>
-        <button onClick={loadGoogleHistory} style={{ background: "transparent", border: "1px solid #34d39966", borderRadius: "10px", color: "#34d399", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
+        <button onClick={loadGoogleHistory} style={{ background: "transparent", border: "1px solid rgba(58, 125, 68, 0.45)", borderRadius: "10px", color: "var(--color-success, #3A7D44)", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
           Refresh Google History
         </button>
-        <button onClick={onRestart} style={{ background: "transparent", border: "1px solid #252530", borderRadius: "10px", color: "#9090bb", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
+        <button onClick={onRestart} style={{ background: "transparent", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "10px", color: "var(--color-subtext, #6B6B6B)", padding: "13px 36px", fontSize: "0.9rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
           Back to Setup
         </button>
       </div>
       {(importStatus || importError || googleHistoryStatus || googleHistoryError || googleSaveStatus || googleSaveError) && (
-        <div style={{ marginTop: "16px", fontSize: "0.72rem", color: importError || googleHistoryError ? "#fca5a5" : "#a7f3d0", letterSpacing: "0.04em", lineHeight: 1.6 }}>
+        <div style={{ marginTop: "16px", fontSize: "0.72rem", color: importError || googleHistoryError ? "var(--color-error, #A94442)" : "var(--color-success, #3A7D44)", letterSpacing: "0.04em", lineHeight: 1.6 }}>
           {importError || googleHistoryError || googleSaveError || googleSaveStatus || googleHistoryStatus || importStatus}
         </div>
       )}

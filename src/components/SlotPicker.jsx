@@ -51,10 +51,10 @@ export function SlotPicker({ value, onChange, colorCount = 6 }) {
           flex: 1,
           width: "100%",
           minHeight: "44px",
-          background: "linear-gradient(135deg, #161227 0%, #22153d 55%, #1a1330 100%)",
-          border: "1px solid #6d4aff",
+          background: "var(--color-surface, #FFFFFF)",
+          border: "1px solid var(--color-primary, #2F5D50)",
           borderRadius: "10px",
-          color: "#f0ece4",
+          color: "var(--color-text, #1F1F1F)",
           padding: "10px 36px 10px 14px",
           fontSize: "1.05rem",
           fontFamily: "'Cormorant Garamond', Georgia, serif",
@@ -62,7 +62,7 @@ export function SlotPicker({ value, onChange, colorCount = 6 }) {
           textAlign: "center",
           outline: "none",
           boxSizing: "border-box",
-          boxShadow: "0 0 0 1px rgba(167, 139, 250, 0.18), 0 6px 20px rgba(76, 29, 149, 0.18)",
+          boxShadow: "0 0 0 1px rgba(47, 93, 80, 0.08), 0 6px 18px rgba(31, 31, 31, 0.06)",
         }}
       />
       <button
@@ -75,9 +75,9 @@ export function SlotPicker({ value, onChange, colorCount = 6 }) {
           width: "34px",
           background: "none",
           border: "none",
-          borderLeft: "1px solid rgba(109, 74, 255, 0.35)",
+          borderLeft: "1px solid rgba(47, 93, 80, 0.22)",
           cursor: "pointer",
-          color: "#c4b5fd",
+          color: "var(--color-primary, #2F5D50)",
           fontSize: "0.72rem",
           display: "flex",
           alignItems: "center",
@@ -94,12 +94,12 @@ export function SlotPicker({ value, onChange, colorCount = 6 }) {
             top: "calc(100% + 6px)",
             left: 0,
             width: "100%",
-            background: "#161227",
-            border: "1px solid #6d4aff",
+            background: "var(--color-surface, #FFFFFF)",
+            border: "1px solid var(--color-border, #E6E2D9)",
             borderRadius: "10px",
             overflow: "hidden",
             zIndex: 100,
-            boxShadow: "0 10px 28px rgba(0,0,0,0.45)",
+            boxShadow: "0 14px 30px rgba(31, 31, 31, 0.14)",
           }}
         >
           {presets.map((count) => (
@@ -110,17 +110,17 @@ export function SlotPicker({ value, onChange, colorCount = 6 }) {
                 setOpen(false);
               }}
               onMouseEnter={(event) => {
-                event.currentTarget.style.background = "#2b1f4d";
+                event.currentTarget.style.background = "#EEF4F1";
               }}
               onMouseLeave={(event) => {
-                event.currentTarget.style.background = count === value ? "#2b1f4d" : "transparent";
+                event.currentTarget.style.background = count === value ? "#E7F0EC" : "transparent";
               }}
               style={{
                 padding: "10px 12px",
                 fontSize: "0.92rem",
-                color: count === value ? "#f0ece4" : "#b7afd6",
+                color: count === value ? "var(--color-primary, #2F5D50)" : "var(--color-text, #1F1F1F)",
                 cursor: "pointer",
-                background: count === value ? "#2b1f4d" : "transparent",
+                background: count === value ? "#E7F0EC" : "transparent",
                 fontFamily: "'Cormorant Garamond', Georgia, serif",
                 letterSpacing: "0.06em",
                 textAlign: "center",

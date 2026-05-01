@@ -145,15 +145,17 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
   };
 
   const cardStyle = (borderColor) => ({
-    background: "#181825",
+    background: "var(--color-surface, #FFFFFF)",
+    border: "1px solid var(--color-border, #E6E2D9)",
     borderRadius: "10px",
     padding: "16px 18px",
     borderLeft: `3px solid ${borderColor}`,
+    boxShadow: "0 12px 30px rgba(31, 31, 31, 0.06)",
   });
 
   const labelStyle = {
     fontSize: "0.65rem",
-    color: "#7070aa",
+    color: "var(--color-subtext, #6B6B6B)",
     letterSpacing: "0.12em",
     textTransform: "uppercase",
     marginBottom: "6px",
@@ -169,8 +171,8 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
     <div
       style={{
         minHeight: "100vh",
-        background: "#141420",
-        color: "#f0ece4",
+        background: "var(--color-bg, #F7F6F2)",
+        color: "var(--color-text, #1F1F1F)",
         fontFamily: "'Georgia', serif",
         display: "flex",
         flexDirection: "column",
@@ -185,26 +187,22 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
           fontWeight: 600,
           letterSpacing: "0.2em",
           textTransform: "uppercase",
-          background: "linear-gradient(120deg, #93c5fd 0%, #a78bfa 40%, #e879f9 70%, #f9a8d4 100%)",
-          WebkitBackgroundClip: "text",
-          WebkitTextFillColor: "transparent",
-          backgroundClip: "text",
-          filter: "drop-shadow(0 0 16px #a78bfaaa)",
+          color: "var(--color-primary, #2F5D50)",
           marginBottom: "6px",
         }}
       >
         Group Tracker
       </div>
 
-      <div style={{ fontSize: "0.68rem", color: "#6b5aaa", letterSpacing: "0.25em", textTransform: "uppercase", marginBottom: "40px" }}>
+      <div style={{ fontSize: "0.68rem", color: "var(--color-subtext, #6B6B6B)", letterSpacing: "0.25em", textTransform: "uppercase", marginBottom: "40px" }}>
         Before You Begin
       </div>
 
       <div style={{ width: "100%", maxWidth: "520px", display: "flex", flexDirection: "column", gap: "18px" }}>
         <div style={cardStyle("#7c3aed")}>
           <div style={labelStyle}>Eyes On, Then Blindfold On</div>
-          <div style={{ fontSize: "0.82rem", color: "#c4b5fd", lineHeight: 1.7 }}>
-            You will control what appears on <span style={{ color: "#f0ece4", fontWeight: 700 }}>#display</span>.
+          <div style={{ fontSize: "0.82rem", color: "var(--color-text, #1F1F1F)", lineHeight: 1.7 }}>
+            You will control what appears on <span style={{ color: "var(--color-primary, #2F5D50)", fontWeight: 700 }}>#display</span>.
             First run the active items while participants can see (eyes on). Then put on blindfolds and run them again
             while participants sense the colors. When you are ready, go to the tracker matrix to log participants&apos; guesses.
           </div>
@@ -212,7 +210,7 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
 
         <div style={cardStyle("#db2777")}>
           <div style={labelStyle}>Testing Participant on Items</div>
-          <div style={{ fontSize: "0.82rem", color: "#f9a8d4", lineHeight: 1.7 }}>
+          <div style={{ fontSize: "0.82rem", color: "var(--color-text, #1F1F1F)", lineHeight: 1.7 }}>
             Cycle the active items to show each item on the big display. Use <b>Tab</b> to move to the next active item (it wraps).
             You can also <b>click</b> any active item button directly.
           </div>
@@ -220,7 +218,7 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
             <button
               onClick={openDisplayTab}
               style={{
-                background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)",
+                background: "var(--color-primary, #2F5D50)",
                 border: "none",
                 borderRadius: "10px",
                 color: "white",
@@ -230,7 +228,7 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
                 letterSpacing: "0.12em",
                 textTransform: "uppercase",
                 cursor: "pointer",
-                boxShadow: "0 4px 28px #7c3aed55",
+                boxShadow: "0 10px 24px rgba(47, 93, 80, 0.22)",
                 whiteSpace: "nowrap",
               }}
             >
@@ -251,7 +249,7 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
                   height: "28px",
                   borderRadius: "8px",
                   border: "1px solid #f9731688",
-                  background: allOptionsOpen ? "#f9731622" : "#141420",
+                  background: allOptionsOpen ? "#FFF4E3" : "var(--color-surface, #FFFFFF)",
                   color: "#fbbf24",
                   cursor: "pointer",
                   display: "flex",
@@ -272,11 +270,11 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
                     right: "auto",
                     left: `${allOptionsOffset.x}px`,
                     width: "270px",
-                    background: "#12121b",
-                    border: "1px solid #2a2a3c",
+                    background: "var(--color-surface, #FFFFFF)",
+                    border: "1px solid var(--color-border, #E6E2D9)",
                     borderRadius: "12px",
                     padding: "10px",
-                    boxShadow: "0 18px 40px #05050acc",
+                    boxShadow: "0 18px 40px rgba(31,31,31,0.18)",
                     zIndex: 10,
                   }}
                 >
@@ -288,12 +286,12 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
                       justifyContent: "space-between",
                       marginBottom: "10px",
                       paddingBottom: "8px",
-                      borderBottom: "1px solid #25253a",
+                      borderBottom: "1px solid var(--color-border, #E6E2D9)",
                       cursor: "grab",
                       userSelect: "none",
                     }}
                   >
-                    <span style={{ fontSize: "0.62rem", color: "#a1a1c8", letterSpacing: "0.1em", textTransform: "uppercase" }}>All options</span>
+                    <span style={{ fontSize: "0.62rem", color: "var(--color-subtext, #6B6B6B)", letterSpacing: "0.1em", textTransform: "uppercase" }}>All options</span>
                     <span style={{ fontSize: "0.9rem", color: "#9ca3af", lineHeight: 1 }}>✥</span>
                   </div>
                   <div style={{ display: "flex", gap: "6px", marginBottom: "10px" }}>
@@ -305,9 +303,9 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
                           onClick={() => setPresenterCategory(catName)}
                           style={{
                             flex: 1,
-                            border: active ? "1px solid #c4b5fd88" : "1px solid #2a2a3c",
-                            background: active ? "#7c3aed22" : "#181825",
-                            color: active ? "#f0ece4" : "#a1a1c8",
+                            border: active ? "1px solid rgba(47, 93, 80, 0.45)" : "1px solid var(--color-border, #E6E2D9)",
+                            background: active ? "#E7F0EC" : "var(--color-surface-soft, #FBFAF7)",
+                            color: active ? "var(--color-primary, #2F5D50)" : "var(--color-subtext, #6B6B6B)",
                             borderRadius: "8px",
                             padding: "7px 8px",
                             cursor: "pointer",
@@ -330,7 +328,7 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
                           onClick={() => selectPresenterItem(item)}
                           title={`Show ${item.name} on #display`}
                           style={{
-                            background: isPresented ? item.hex + "22" : "#181825",
+                            background: isPresented ? item.hex + "22" : "var(--color-surface-soft, #FBFAF7)",
                             border: isPresented ? `2px solid ${item.hex}` : `1px solid ${item.hex}55`,
                             borderRadius: "10px",
                             padding: "9px 6px",
@@ -340,13 +338,13 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
                             alignItems: "center",
                             justifyContent: "center",
                             gap: "4px",
-                            color: "#f0ece4",
+                            color: "var(--color-text, #1F1F1F)",
                             minHeight: "58px",
                             boxShadow: isPresented ? `0 0 0 1px #ffffff33, 0 0 16px ${item.hex}33` : "none",
                           }}
                         >
-                          <span style={{ fontSize: "1rem", lineHeight: 1, color: "#f5f7fb" }}>{item.symbol}</span>
-                          <span style={{ fontSize: "0.6rem", color: "#d6cfff" }}>{item.name}</span>
+                          <span style={{ fontSize: "1rem", lineHeight: 1, color: item.hex }}>{item.symbol}</span>
+                          <span style={{ fontSize: "0.6rem", color: "var(--color-text, #1F1F1F)" }}>{item.name}</span>
                         </button>
                       );
                     })}
@@ -363,8 +361,8 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
                   key={item.name}
                   onClick={() => selectActiveItem(i)}
                   style={{
-                    background: isSelected ? item.hex + "22" : "#141420",
-                    border: isSelected ? "2px solid white" : `1px solid ${item.hex}55`,
+                    background: isSelected ? item.hex + "22" : "var(--color-surface-soft, #FBFAF7)",
+                    border: isSelected ? `2px solid ${item.hex}` : `1px solid ${item.hex}55`,
                     borderRadius: "10px",
                     padding: "10px 12px",
                     cursor: "pointer",
@@ -378,8 +376,8 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
                   }}
                   title={isSelected ? "Currently shown on #display" : "Click to show on #display"}
                 >
-                  <span style={{ fontSize: "1.3rem", lineHeight: 1, color: isSelected ? "white" : item.hex }}>{item.symbol}</span>
-                  <span style={{ fontSize: "0.82rem", color: isSelected ? "white" : "#c4b5fd", fontWeight: isSelected ? 700 : 500 }}>
+                  <span style={{ fontSize: "1.3rem", lineHeight: 1, color: item.hex }}>{item.symbol}</span>
+                  <span style={{ fontSize: "0.82rem", color: isSelected ? "var(--color-text, #1F1F1F)" : "var(--color-subtext, #6B6B6B)", fontWeight: isSelected ? 700 : 500 }}>
                     {item.name}
                   </span>
                 </button>
@@ -388,9 +386,9 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
           </div>
         </div>
 
-        <div style={{ background: "#181825", borderRadius: "10px", padding: "16px 18px", borderLeft: "3px solid #22c55e" }}>
+        <div style={{ background: "var(--color-surface, #FFFFFF)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "10px", padding: "16px 18px", borderLeft: "3px solid var(--color-success, #3A7D44)", boxShadow: "0 12px 30px rgba(31, 31, 31, 0.06)" }}>
           <div style={labelStyle}>Special Keys + Cell Matrix</div>
-          <div style={{ fontSize: "0.80rem", color: "#f0ece4", lineHeight: 1.7 }}>
+          <div style={{ fontSize: "0.80rem", color: "var(--color-text, #1F1F1F)", lineHeight: 1.7 }}>
             <div>
               <b>Dot chain</b> - the horizontal sequence of logged guesses (ex: - - -).
             </div>
@@ -418,7 +416,7 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
             <div>
               <b>Participant row</b> - the horizontal row for one participant.
             </div>
-            <div style={{ marginTop: "10px", color: "#9090bb" }}>
+            <div style={{ marginTop: "10px", color: "var(--color-subtext, #6B6B6B)" }}>
               Tip: In the tracker, click a dot to set the edit cursor. Then click an input button to replace that guess.
               Use Shift+click for quick removal, and Ctrl/click to insert or truncate depending on context.
             </div>
@@ -429,7 +427,7 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
           <button
             onClick={() => onContinue()}
             style={{
-              background: "linear-gradient(120deg, #3b82f6 0%, #7c3aed 50%, #db2777 100%)",
+              background: "var(--color-primary, #2F5D50)",
               border: "none",
               borderRadius: "10px",
               color: "white",
@@ -439,7 +437,7 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
               letterSpacing: "0.18em",
               textTransform: "uppercase",
               cursor: "pointer",
-              boxShadow: "0 4px 28px #7c3aed55",
+              boxShadow: "0 10px 24px rgba(47, 93, 80, 0.22)",
             }}
           >
             Enter Session / Tracker -&gt;
@@ -448,9 +446,9 @@ export function GroupInstructions({ category, activeItems, onContinue, onBack })
             onClick={onBack}
             style={{
               background: "transparent",
-              border: "1px solid #252530",
+              border: "1px solid var(--color-border, #E6E2D9)",
               borderRadius: "8px",
-              color: "#555",
+              color: "var(--color-subtext, #6B6B6B)",
               padding: "10px",
               fontSize: "0.78rem",
               fontFamily: "inherit",

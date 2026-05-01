@@ -1,15 +1,27 @@
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
+  --color-bg: #F7F6F2;
+  --color-surface: #FFFFFF;
+  --color-surface-soft: #FBFAF7;
+  --color-border: #E6E2D9;
+  --color-text: #1F1F1F;
+  --color-subtext: #6B6B6B;
+  --color-primary: #2F5D50;
+  --color-primary-hover: #264A40;
+  --color-success: #3A7D44;
+  --color-error: #A94442;
+  --color-warning: #C58B2B;
+
+  --text: var(--color-subtext);
+  --text-h: var(--color-text);
+  --bg: var(--color-bg);
+  --border: var(--color-border);
   --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
+  --accent: var(--color-primary);
+  --accent-bg: rgba(47, 93, 80, 0.1);
+  --accent-border: rgba(47, 93, 80, 0.42);
+  --social-bg: rgba(255, 255, 255, 0.72);
   --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+    rgba(31, 31, 31, 0.1) 0 10px 15px -3px, rgba(31, 31, 31, 0.05) 0 4px 6px -2px;
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -17,7 +29,7 @@
 
   font: 18px/145% var(--sans);
   letter-spacing: 0.18px;
-  color-scheme: light dark;
+  color-scheme: light;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
@@ -30,30 +42,11 @@
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-}
-
 body {
   margin: 0;
   min-height: 100vh;
-  background: #141420;
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 #root {
@@ -71,11 +64,11 @@ body {
 
 html {
   min-height: 100%;
-  background: #141420;
+  background: var(--color-bg);
 }
 
 html {
-  scrollbar-color: #3a3a55 #141420;
+  scrollbar-color: #B9B3A8 var(--color-bg);
   scrollbar-width: thin;
 }
 
@@ -85,23 +78,23 @@ html {
 }
 
 *::-webkit-scrollbar-track {
-  background: #141420;
+  background: var(--color-bg);
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #3a3a55;
+  background: #B9B3A8;
   border-radius: 999px;
-  border: 2px solid #141420;
+  border: 2px solid var(--color-bg);
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #4c4c70;
+  background: #9F978A;
 }
 
 @keyframes mindsightMicPulse {
-  0% { transform: scale(1); box-shadow: 0 0 0 2px #f472b633, 0 0 18px #f472b644; }
-  50% { transform: scale(1.08); box-shadow: 0 0 0 4px #f472b644, 0 0 26px #f472b677; }
-  100% { transform: scale(1); box-shadow: 0 0 0 2px #f472b633, 0 0 18px #f472b644; }
+  0% { transform: scale(1); box-shadow: 0 0 0 2px rgba(47, 93, 80, 0.18), 0 0 18px rgba(47, 93, 80, 0.20); }
+  50% { transform: scale(1.08); box-shadow: 0 0 0 4px rgba(47, 93, 80, 0.22), 0 0 26px rgba(47, 93, 80, 0.28); }
+  100% { transform: scale(1); box-shadow: 0 0 0 2px rgba(47, 93, 80, 0.18), 0 0 18px rgba(47, 93, 80, 0.20); }
 }
 
 /* Full-bleed styling for OBS/browser-source: http://.../#display */

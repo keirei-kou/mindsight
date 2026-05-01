@@ -30,20 +30,6 @@ function getParticipantCardStats(data, participant) {
   });
 }
 
-function getParticipantSummary(stats) {
-  const accuracyValues = stats.filter(card => card.guesses.length || card.skipped).map(card => card.accuracy);
-  const timeValues = stats.map(card => card.elapsedMs).filter(value => value != null);
-  const resolvedCount = stats.filter(card => card.resolved).length;
-  const skippedCount = stats.filter(card => card.skipped).length;
-
-  return {
-    avgAccuracy: accuracyValues.length ? Math.round(accuracyValues.reduce((sum, value) => sum + value, 0) / accuracyValues.length) : 0,
-    avgTimeMs: timeValues.length ? Math.round(timeValues.reduce((sum, value) => sum + value, 0) / timeValues.length) : null,
-    resolvedCount,
-    skippedCount,
-  };
-}
-
 function getGuessPolicy(viewData) {
   return viewData.guessPolicy ?? GUESS_POLICIES.REPEAT_UNTIL_CORRECT;
 }
@@ -78,19 +64,19 @@ function AccuracyGraph({ data }) {
   const scaleY = (value) => padding.top + ((100 - value) / 100) * graphHeight;
 
   return (
-    <div style={{ background: "#111118", border: "1px solid #252530", borderRadius: "14px", padding: "18px 18px 12px", overflowX: "auto" }}>
-      <div style={{ fontSize: "0.82rem", color: "#b9b4d8", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "12px" }}>Accuracy Over Time</div>
+    <div style={{ background: "var(--color-surface, #FFFFFF)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "14px", padding: "18px 18px 12px", overflowX: "auto", boxShadow: "0 12px 30px rgba(31, 31, 31, 0.06)" }}>
+      <div style={{ fontSize: "0.82rem", color: "var(--color-subtext, #6B6B6B)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "12px" }}>Accuracy Over Time</div>
       <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Group accuracy graph">
         {yTicks.map((tick) => (
           <g key={tick}>
-            <line x1={padding.left} y1={scaleY(tick)} x2={width - padding.right} y2={scaleY(tick)} stroke="#252530" strokeDasharray="4 4" />
+            <line x1={padding.left} y1={scaleY(tick)} x2={width - padding.right} y2={scaleY(tick)} stroke="#E6E2D9" strokeDasharray="4 4" />
             <text x={padding.left - 10} y={scaleY(tick) + 4} fill="#7f7a9e" fontSize="11" textAnchor="end">
               {tick}
             </text>
           </g>
         ))}
-        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} stroke="#3a3a55" />
-        <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="#3a3a55" />
+        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} stroke="#BDB6AB" />
+        <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="#BDB6AB" />
         <text x={width / 2} y={height - 8} fill="#7f7a9e" fontSize="11" textAnchor="middle">
           Session Time
         </text>
@@ -115,7 +101,7 @@ function AccuracyGraph({ data }) {
       </svg>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "10px" }}>
         {series.map((item) => (
-          <div key={item.participant.id} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.74rem", color: "#c9c3e5" }}>
+          <div key={item.participant.id} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.74rem", color: "var(--color-text, #1F1F1F)" }}>
             <span style={{ width: "10px", height: "10px", borderRadius: "999px", background: item.color, display: "inline-block" }} />
             <span>{item.participant.name}</span>
           </div>
@@ -169,30 +155,30 @@ export function GroupResults({ data, onRestart, onBack }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#141420", color: "#f0ece4", fontFamily: "'Georgia', serif", padding: "32px 24px 40px" }}>
+    <div style={{ minHeight: "100vh", background: "var(--color-bg, #F7F6F2)", color: "var(--color-text, #1F1F1F)", fontFamily: "'Georgia', serif", padding: "32px 24px 40px" }}>
       <div style={{ maxWidth: "1180px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "22px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "20px", flexWrap: "wrap" }}>
           <div>
-            <div style={{ fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "2rem", fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", background: "linear-gradient(120deg, #93c5fd 0%, #a78bfa 40%, #e879f9 70%, #f9a8d4 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+            <div style={{ fontFamily: "Cormorant Garamond, Georgia, serif", fontSize: "2rem", fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--color-primary, #2F5D50)" }}>
               Group Results
             </div>
-            <div style={{ fontSize: "0.72rem", color: "#8a84b2", letterSpacing: "0.12em", textTransform: "uppercase", marginTop: "6px" }}>
+            <div style={{ fontSize: "0.72rem", color: "var(--color-subtext, #6B6B6B)", letterSpacing: "0.12em", textTransform: "uppercase", marginTop: "6px" }}>
               {viewData.category} · {viewData.participants.length} participants · {viewData.slots.length} cards{viewData.importedFromCsv ? " · imported CSV" : ""}
             </div>
           </div>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
             <CsvImportButton
               onSelect={importCsv}
-              buttonStyle={{ background: "transparent", border: "1px solid #f59e0b66", borderRadius: "10px", color: "#fbbf24", padding: "13px 20px", fontSize: "0.85rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}
+              buttonStyle={{ background: "transparent", border: "1px solid rgba(197, 139, 43, 0.45)", borderRadius: "10px", color: "var(--color-warning, #C58B2B)", padding: "13px 20px", fontSize: "0.85rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}
               statusStyle={{ fontSize: "0.68rem", color: "#d6b06b", marginTop: "8px", letterSpacing: "0.04em", lineHeight: 1.5 }}
             />
-            <button onClick={exportAllCsv} style={{ background: "transparent", border: "1px solid #22c55e66", borderRadius: "10px", color: "#22c55e", padding: "13px 20px", fontSize: "0.85rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}>
+            <button onClick={exportAllCsv} style={{ background: "transparent", border: "1px solid rgba(58, 125, 68, 0.45)", borderRadius: "10px", color: "var(--color-success, #3A7D44)", padding: "13px 20px", fontSize: "0.85rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}>
               Download All Users Data
             </button>
-            <button onClick={onBack} style={{ background: "transparent", border: "1px solid #3b82f666", borderRadius: "10px", color: "#93c5fd", padding: "13px 20px", fontSize: "0.85rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}>
+            <button onClick={onBack} style={{ background: "transparent", border: "1px solid rgba(47, 93, 80, 0.45)", borderRadius: "10px", color: "var(--color-primary, #2F5D50)", padding: "13px 20px", fontSize: "0.85rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}>
               Back to Tracker
             </button>
-            <button onClick={onRestart} style={{ background: "transparent", border: "1px solid #252530", borderRadius: "10px", color: "#9090bb", padding: "13px 20px", fontSize: "0.85rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}>
+            <button onClick={onRestart} style={{ background: "transparent", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "10px", color: "var(--color-subtext, #6B6B6B)", padding: "13px 20px", fontSize: "0.85rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}>
               Back to Setup
             </button>
           </div>
@@ -204,10 +190,10 @@ export function GroupResults({ data, onRestart, onBack }) {
             const firstGuessPercent = participantSummary.analytics?.firstGuessAccuracy != null ? Math.round(participantSummary.analytics.firstGuessAccuracy * 100) : null;
             const weightedPercent = participantSummary.analytics?.weightedScore != null ? Math.round(participantSummary.analytics.weightedScore * 100) : null;
             return (
-              <div key={participant.id} style={{ background: "#181825", border: "1px solid #252530", borderRadius: "12px", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "18px", flexWrap: "wrap" }}>
+              <div key={participant.id} style={{ background: "var(--color-surface, #FFFFFF)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "12px", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "18px", flexWrap: "wrap", boxShadow: "0 10px 24px rgba(31, 31, 31, 0.05)" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                  <div style={{ fontSize: "1rem", color: "#f0ece4", fontWeight: 600 }}>{participant.name}</div>
-                  <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "0.72rem", color: "#9d97c4" }}>
+                  <div style={{ fontSize: "1rem", color: "var(--color-text, #1F1F1F)", fontWeight: 600 }}>{participant.name}</div>
+                  <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "0.72rem", color: "var(--color-subtext, #6B6B6B)" }}>
                     {firstGuessPercent !== null && <span>First Guess {firstGuessPercent}%</span>}
                     {guessPolicy !== GUESS_POLICIES.ONE_SHOT && weightedPercent !== null && <span>Weighted {weightedPercent}%</span>}
                     {guessPolicy !== GUESS_POLICIES.ONE_SHOT && participantSummary.analytics?.averageGuessPosition != null && <span>Avg Pos {participantSummary.analytics.averageGuessPosition.toFixed(2)}</span>}
@@ -220,7 +206,7 @@ export function GroupResults({ data, onRestart, onBack }) {
                 </div>
                 <button
                   onClick={() => downloadCsv(buildResultsFilename(participant.name, viewData.category), buildGroupParticipantCsv(viewData, participant.id))}
-                  style={{ background: "transparent", border: "1px solid #22c55e66", borderRadius: "10px", color: "#22c55e", padding: "11px 18px", fontSize: "0.78rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}
+                  style={{ background: "transparent", border: "1px solid rgba(58, 125, 68, 0.45)", borderRadius: "10px", color: "var(--color-success, #3A7D44)", padding: "11px 18px", fontSize: "0.78rem", fontFamily: "Cormorant Garamond, Georgia, serif", letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}
                 >
                   Download {participant.name}
                 </button>
@@ -230,14 +216,14 @@ export function GroupResults({ data, onRestart, onBack }) {
         </div>
 
         {(importStatus || importError) && (
-          <div style={{ fontSize: "0.72rem", color: importError ? "#fca5a5" : "#a7f3d0", letterSpacing: "0.04em", lineHeight: 1.6 }}>
+          <div style={{ fontSize: "0.72rem", color: importError ? "var(--color-error, #A94442)" : "var(--color-success, #3A7D44)", letterSpacing: "0.04em", lineHeight: 1.6 }}>
             {importError || importStatus}
           </div>
         )}
 
-        <div style={{ background: "#181825", border: "1px solid #252530", borderRadius: "12px", padding: "14px 16px", display: "flex", flexDirection: "column", gap: "6px" }}>
-          <div style={{ fontSize: "0.78rem", color: "#b9b4d8", letterSpacing: "0.12em", textTransform: "uppercase" }}>Group Rollup</div>
-          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "0.72rem", color: "#9d97c4" }}>
+        <div style={{ background: "var(--color-surface, #FFFFFF)", border: "1px solid var(--color-border, #E6E2D9)", borderRadius: "12px", padding: "14px 16px", display: "flex", flexDirection: "column", gap: "6px", boxShadow: "0 10px 24px rgba(31, 31, 31, 0.05)" }}>
+          <div style={{ fontSize: "0.78rem", color: "var(--color-subtext, #6B6B6B)", letterSpacing: "0.12em", textTransform: "uppercase" }}>Group Rollup</div>
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "0.72rem", color: "var(--color-subtext, #6B6B6B)" }}>
             {rollupSummary.firstGuessAccuracy != null && <span>First Guess {Math.round(rollupSummary.firstGuessAccuracy * 100)}%</span>}
             {guessPolicy !== GUESS_POLICIES.ONE_SHOT && rollupSummary.weightedScore != null && <span>Weighted {Math.round(rollupSummary.weightedScore * 100)}%</span>}
             {guessPolicy !== GUESS_POLICIES.ONE_SHOT && rollupSummary.averageGuessPosition != null && <span>Avg Pos {rollupSummary.averageGuessPosition.toFixed(2)}</span>}
