@@ -75,6 +75,8 @@ export const SOLO_TRIAL_HEADERS = [
   "time_of_day_tag",
   "time_of_day_is_estimated",
   "notes",
+  "voice_text",
+  "voice_source",
   "training_overlay_opens",
   "training_overlay_ms",
   "name",
@@ -142,6 +144,7 @@ export function buildSoloTrialRows(data) {
         trialDurationMs: [result.timeToFirst, ...(result.guessDeltas || [])]
           .filter((value) => value != null)
           .reduce((sum, value) => sum + value, 0) || null,
+        voiceNote: result.voice_note ?? { fragments: [], combined_text: null },
       }));
 
   return effectiveTrials.map((trial, index) => {
@@ -218,6 +221,8 @@ export function buildSoloTrialRows(data) {
       timeOfDayTag || "",
       timeOfDayTag ? String(timeOfDayIsEstimated) : "",
       trial.notes ?? legacyResult?.notes ?? "",
+      trial.voiceText ?? legacyResult?.voice_note?.combined_text ?? "",
+      trial.voiceSource ?? (legacyResult?.voice_note?.fragments || []).map((fragment) => fragment.file).filter(Boolean).join("|"),
       trial.trainingOverlayOpens ?? legacyResult?.trainingOverlayOpens ?? "",
       trial.trainingOverlayMs ?? legacyResult?.trainingOverlayMs ?? "",
       name,

@@ -237,6 +237,7 @@ export function buildTrialRecord({
   timeOfDayTag = "",
   timeOfDayIsEstimated = null,
   notes = "",
+  voiceNote = null,
   trainingOverlayOpens = null,
   trainingOverlayMs = null,
 }) {
@@ -267,6 +268,11 @@ export function buildTrialRecord({
     timeOfDayTag,
     timeOfDayIsEstimated,
     notes,
+    voiceNote,
+    voiceText: voiceNote?.combined_text ?? "",
+    voiceSource: Array.isArray(voiceNote?.fragments)
+      ? voiceNote.fragments.map((fragment) => fragment.file).filter(Boolean).join("|")
+      : "",
     trainingOverlayOpens,
     trainingOverlayMs,
   };

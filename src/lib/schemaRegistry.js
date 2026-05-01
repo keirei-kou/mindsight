@@ -513,6 +513,8 @@ export const LEGACY_SOLO_FIELD_BY_CANONICAL = {
   "context.time_of_day": "time_of_day_tag",
   "context.time_of_day_is_estimated": "time_of_day_is_estimated",
   "notes.trial": "notes",
+  "notes.voice_text": "voice_text",
+  "notes.voice_source": "voice_source",
   "context.training_overlay_opens": "training_overlay_opens",
   "context.training_overlay_ms": "training_overlay_ms",
 };

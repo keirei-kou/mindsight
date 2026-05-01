@@ -49,6 +49,7 @@ export function buildSoloSessionPayload({
       timeOfDayTag: result.timeOfDayTag || getTimeOfDayTag(result.trialStartedAt),
       timeOfDayIsEstimated: result.timeOfDayIsEstimated ?? false,
       notes: result.notes ?? "",
+      voiceNote: result.voice_note ?? { fragments: [], combined_text: null },
       trainingOverlayOpens: result.trainingOverlayOpens ?? null,
       trainingOverlayMs: result.trainingOverlayMs ?? null,
     });
