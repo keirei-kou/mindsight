@@ -4,43 +4,7 @@ Current actionable work for the next implementation pass. Completed work belongs
 
 ## Start Here Next
 
-Commit the local ASR provider diagnostics as a separate, non-session-UX slice. Do not bundle the paused TrainingRoom/CalibrationRoom wording, tab, mode-speech, or phase-flow changes into that commit.
-
-## Shared Voice Engine Architecture - Tauri-First Documentation
-
-Status: active architecture documentation task. This is documentation-only until a later implementation pass explicitly starts the runtime work.
-
-Goal:
-
-- Define the reusable Shared Voice Engine architecture before adding a Python runtime, Tauri shell, VAD adapter, or ASR adapter.
-- Make Tauri the primary future desktop wrapper while keeping the engine platform-independent.
-- Keep the current React/Vite app in place while the engine architecture is still being discovered.
-- Keep mobile readiness as a design constraint, not an active mobile build task.
-
-Current boundaries:
-
-- Do not implement runtime voice engine code in this task.
-- Do not create `src-tauri/` yet.
-- Do not implement Silero, Vosk, or Sherpa Python adapters yet.
-- Do not refactor to Next.js.
-- Do not wire Shared Voice Engine events into TrainingRoom or CalibrationRoom submission behavior yet.
-- Keep this task separate from the current browser Vosk/Sherpa diagnostics and model wiring.
-
-Documentation targets:
-
-- `docs/SHARED_VOICE_ENGINE.md`: source of truth for layered architecture, Tauri sidecar model, platform strategy, event schema, session lifecycle authority, streaming/backpressure, audio source abstraction, Silero-first VAD direction, mode profiles, sidecar startup contract, risks, and explicit non-goals.
-- `docs/ROADMAP.md`: long-term Shared Voice Engine phases and future Next.js boundary.
-- `docs/README.md`: documentation map entry.
-
-Acceptance criteria:
-
-- Shared Voice Engine architecture is documented without runtime code changes.
-- Tauri is clearly defined as the primary desktop path, with Electron fallback-only.
-- Mobile support is defined as future shell/bridge work that reuses the same WebSocket/HTTP protocol.
-- Silero is documented as the preferred VAD adapter, with WebRTC, energy, and mock VAD as fallback/testing options.
-- The Python engine is documented as authoritative for voice `sessionId`, `turnId`, `sequence`, and event timestamps.
-- Backpressure requirements are documented for partial transcripts, rapid VAD toggling, reconnects, slow clients, and UI event overload.
-- Next.js is documented as future-only: use Vite while discovering the engine, and consider Next.js when PsiLabs becomes a platform.
+Pick one item under **Immediate Next Tasks** (recommended first: Google Sheets upgrade UX) or continue **Voice Provider Architecture** local model verification against `#voice-asr-test`. Runtime Shared Voice Engine work stays roadmap-only until explicitly scoped; architecture documentation is archived under **2026-05-03 Shared Voice Engine Architecture Documentation** in `ARCHIVED_TASKS.md`.
 
 ## Tester Feedback Priority - Calibration UX And Voice Providers
 
@@ -52,8 +16,8 @@ Goal:
 
 Current boundary:
 
-- Implemented and safe to commit separately: local ASR provider infrastructure, Vosk Local, Sherpa ONNX Local, Browser Speech baseline, model setup docs, `.env.example`, and the standalone voice ASR diagnostic page.
-- Paused and not safe to include in the ASR diagnostics commit: active session UI/mode changes in TrainingRoom/CalibrationRoom, instruction wording changes, mode speech behavior, Kokoro prompt wiring, and broader calibration/test phase flow changes.
+- Shipped and archived: local ASR diagnostics slice (`ARCHIVED_TASKS.md`, 2026-04-30 Local ASR Provider Diagnostics).
+- Paused: active session UI/mode changes in TrainingRoom/CalibrationRoom, instruction wording changes, mode speech behavior, Kokoro prompt wiring, and broader calibration/test phase flow changes.
 
 ### 1. Calibration/Test UX
 
@@ -171,12 +135,7 @@ Acceptance criteria:
 
 Implemented checkpoint:
 
-- `src/lib/voiceProviders.js` exposes the shared provider selector and dropdown metadata.
-- `src/lib/voskVoiceProvider.js` implements Vosk Local via `vosk-browser`.
-- `src/lib/sherpaOnnxVoiceProvider.js` implements Sherpa ONNX Local through the official browser WebAssembly ASR asset bundle.
-- `src/lib/audioPrebuffer.js` provides reusable Web Audio prebuffer/microphone capture support.
-- `src/pages/VoiceAsrTest.jsx` provides a standalone diagnostic page at `#voice-asr-test`.
-- `docs/VOICE_ASR_LOCAL_MODELS.md` documents model placement, env overrides, manual test flow, and troubleshooting.
+- See `ARCHIVED_TASKS.md` (2026-04-30 Local ASR Provider Diagnostics) for file list and scope boundary.
 
 Next local ASR verification tasks:
 
@@ -188,25 +147,110 @@ Next local ASR verification tasks:
 
 ### 3. Implementation Order
 
-1. Commit the local ASR diagnostics slice without TrainingRoom/CalibrationRoom UX changes.
-2. Provide local model assets and compare Vosk Local vs Sherpa ONNX Local for short command recognition.
-3. Decide whether Vosk/Sherpa should stay dev-only, be env-gated, or ship as lazy-loaded production options.
-4. Resume the Calibration/Test UX pass only after the ASR diagnostics slice is safely committed.
+1. Provide local model assets and compare Vosk Local vs Sherpa ONNX Local for short command recognition.
+2. Decide whether Vosk/Sherpa should stay dev-only, be env-gated, or ship as lazy-loaded production options.
+3. Resume the Calibration/Test UX pass when the session UX workstream is reopened (after keeping ASR diagnostics commits separate from that pass).
+
+## ASR Arbitration Layer
+
+Current boundary: Phases 1-4 and Phase 3.5 of the ASR arbitration plan are complete and archived in `ARCHIVED_TASKS.md`. Phases 5 and 6 are the remaining work; keep Phase 5 lab-only and defer TrainingRoom integration to Phase 6.
+
+Status per phase:
+
+- Phase 1: complete.
+- Phase 2: complete.
+- Phase 3: complete.
+- Phase 3.5: complete (Corpus Recording Workflow).
+- Phase 4: complete.
+- Phase 5: pending.
+- Phase 6: pending.
+
+What was implemented:
+
+- Sidecar arbitration core (`local_speech_engine/asr/arbitration_types.py`, `arbitrator.py`, `normalization.py`, `vocabulary.py`) with sequential same-WAV arbitration over `vosk` + `sherpa`, decision ordering `agreement_count -> command_validity -> average_similarity -> average_confidence -> provider_priority`, and structured provider failures.
+- Lab UI exposure in `#voice-asr-test`: `arbitrateSegment` / `arbitrateLatestSegment` in `src/lib/localVadClient.js`, mode + provider controls and per-provider breakdown table in `src/components/LocalVadPanel.jsx`, and `asr_arbitration_*` events from `local_speech_engine/server.py`.
+- Audio corpus scaffolding under `local_speech_engine/audio_corpus/` with session-style and legacy `labels.json`, plus a benchmark harness at `local_speech_engine/scripts/benchmark_arbitration.py` writing CSV + JSON to `local_speech_engine/benchmark_results/`.
+- Phase 3.5 corpus recording workflow in `#voice-asr-test`: pre-labeled recording context, per-segment save/delete/ignore actions, session-based corpus writing through `labels.<session_id>.json`, and a clearer lab UX flow from connect/start VAD to label, record, review, delete noise, and save good clips.
+- Five pluggable policies in `local_speech_engine/asr/policies.py` (`hybrid_default`, `agreement_first`, `command_validity_first`, `confidence_weighted`, `provider_priority`), wired through `AsrArbiter` (`policy_name`, `policy_scores`) and the benchmark `--policies` flag. Default remains `hybrid_default`.
+
+What remains:
+
+### Phase 5 - Arbitration policy UI control
+
+Status: not implemented. The sidecar already accepts `policy` over the WebSocket (`local_speech_engine/server.py` line 738), but the lab UI does not surface it.
+
+Goal:
+
+- Allow selecting an arbitration policy in `#voice-asr-test` and surface the resulting `policy_name` / `policy_scores`.
+
+Scope:
+
+- Extend `arbitrateSegment` and `arbitrateLatestSegment` in `src/lib/localVadClient.js` to forward a `policy` argument through the existing `arbitrate_segment` / `arbitrate_latest_segment` commands.
+- Add a policy selector to the ASR Arbitration block in `src/components/LocalVadPanel.jsx` (alongside the current `Mode` selector) using `available_policy_names()` from the sidecar (`hybrid_default`, `agreement_first`, `command_validity_first`, `confidence_weighted`, `provider_priority`).
+- Pass the selected policy from `runArbitration` into the client, both for latest-segment and selected-segment runs.
+- Display the resolved `policy_name` and key `policy_scores` (for example winning key, score order, fallback metadata) in the arbitration result panel.
+
+Constraints:
+
+- Do not modify `TrainingRoom`.
+- Keep this UI lab-only (`#voice-asr-test`).
+- Do not add Whisper.
+- Do not include Browser Speech in arbitration.
+- Default policy remains `hybrid_default` when nothing is selected.
+
+Acceptance criteria:
+
+- The lab UI exposes all five policies returned by `available_policy_names()`.
+- Selecting a policy and arbitrating a segment forwards the policy through the client and sidecar so `asr_arbitration_result.policy_name` matches the selection.
+- `policy_name` and `policy_scores` are visible in the arbitration result panel for the selected segment.
+- TrainingRoom session flow and keyboard controls are unchanged.
+
+Verification:
+
+- `npm run build`
+- `python -m unittest discover local_speech_engine/tests`
+
+### Phase 6 - TrainingRoom arbitration integration
+
+Status: not implemented. `src/pages/TrainingRoom.jsx` only consumes `asr_transcript` / `asr_transcript_error` events today and never references `asr_arbitration_result`.
+
+Goal:
+
+- Use arbitration as the real command input in TrainingRoom while keeping existing UX intact.
+
+Scope:
+
+- Replace command-input usage of `asr_transcript` events with `asr_arbitration_result` in `src/pages/TrainingRoom.jsx`, sourcing the recognized command from `final_command` (with `final_text` as fallback) emitted by the local VAD sidecar.
+- Define fallback behavior: ignore arbitration results that produce no valid command, with optional retry behavior; keep existing `asr_transcript`-driven voice-note handling untouched if not relevant to command input.
+- Maintain a clean UX with no major redesign and no confusing intermediate states.
+- Optionally log `decision_reason` and provider disagreement information (e.g. through the existing voice debug console) without leaking arbitration internals into the main session UI.
+
+Constraints:
+
+- Do not break the existing solo session flow.
+- Keep keyboard controls (`A`, `D`, `Space`, `Ctrl`, `Shift`) unaffected.
+- No major UI redesign.
+- Do not include Browser Speech in arbitration; arbitration uses only sidecar providers.
+
+Acceptance criteria:
+
+- TrainingRoom commands are detected through `asr_arbitration_result` rather than raw `asr_transcript` events.
+- Invalid or empty arbitration results are ignored without breaking the trial loop; optional retry path documented and reachable.
+- No regression in solo gameplay: trial advance, repeat-until-correct, oneShot, and keyboard controls behave as before.
+- Debug surfaces (e.g. voice debug console) can show `decision_reason` and provider disagreement when present.
+
+Verification:
+
+- Manual TrainingRoom test against the local VAD sidecar with `vosk` + `sherpa` providers.
+- `python -m unittest discover local_speech_engine/tests` to confirm no sidecar regressions.
 
 ## Optional Cloud Layer Follow-Up
 
-Continue the optional cloud layer wiring without changing Google Sheets or CSV archive behavior after the tester feedback priority is complete.
+Continue optional cloud wiring without changing Google Sheets or CSV archive behavior.
 
-Supabase first-pass status:
+Completed milestone:
 
-- `@supabase/supabase-js` is declared in `package.json`.
-- `src/lib/supabase.js` exports `supabase`, `isSupabaseConfigured`, and `getSupabaseClient()`.
-- Missing `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` disables Supabase gracefully.
-- `src/cloud/sessionSummaryCloud.js` can build and save lightweight solo session summaries, but save is a safe no-op when Supabase is unconfigured.
-- `docs/SUPABASE_SCHEMA.md` documents the phase 1 schema.
-- `supabase/migrations/001_initial_cloud_summary.sql` creates private-by-default summary tables with RLS.
-- No full trial rows are stored in Supabase.
-- Google Sheets remains the durable full trial archive; CSV export remains supported.
+- Supabase session-summary first pass is archived (`ARCHIVED_TASKS.md`, 2026-05-03 Supabase Session Summary First Pass).
 
 Next implementation target:
 
@@ -216,20 +260,19 @@ Next implementation target:
 
 ## Data Contract / Sheets Safety
 
-Double-check the import, export, and append paths end to end before moving to larger roadmap work.
+Double-check import, export, and append paths before larger roadmap work.
 
-Last known state:
+Completed milestone:
+
+- Automated harness: `npm run verify:data-contract` (`ARCHIVED_TASKS.md`, 2026-05-03 Local Data Contract Verification Harness).
+
+Invariant reminders:
 
 - CSV solo export uses the canonical dot v1 header order from `PSILABS_DOT_V1_HEADERS`.
 - New Google Sheets exports use the same canonical dot v1 header order.
 - Existing non-empty Google Sheets append by matching the live header row, so manually reordered columns should not corrupt future appends.
 - CSV solo import accepts legacy v0 and dot v1 fields through the schema registry.
 - Google Sheets history rebuild reads dot v1 fields with legacy fallback/backfill.
-
-Local verification now exists:
-
-- Run `npm run verify:data-contract`.
-- The script verifies canonical CSV headers, solo CSV round-trip parsing, history CSV row counts, reusable sheet schema inspection statuses, blank-sheet append initialization, manually reordered append headers, non-mutating reordered/legacy history reads, blank header failures, and unknown header failures.
 
 Next implementation target:
 
@@ -289,7 +332,7 @@ Solo-mode foundations are mostly in place:
 - Local real-time session persistence: `src/lib/localSessionStore.js`
 - Local data-contract verification: `scripts/verify-data-contract.mjs`
 
-Recently completed work has been moved to `ARCHIVED_TASKS.md`.
+Recently completed work lives in `ARCHIVED_TASKS.md` (including 2026-04-30 local ASR diagnostics, 2026-05-03 Shared Voice Engine architecture documentation, Supabase session-summary first pass, and local data-contract verification harness).
 
 ## Shared Session MVP
 

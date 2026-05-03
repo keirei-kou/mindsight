@@ -10,6 +10,8 @@ COMMAND_ALIASES = {
     "stop_listening": "stop_vad",
     "start_voice_note_recording": "start_voice_note",
     "stop_voice_note_recording": "stop_voice_note",
+    "delete_segment": "delete_recording_segment",
+    "delete_recording": "delete_recording_segment",
 }
 
 

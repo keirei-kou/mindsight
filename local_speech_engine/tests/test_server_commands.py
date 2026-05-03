@@ -26,6 +26,11 @@ class ServerCommandTests(unittest.TestCase):
         self.assertEqual(normalize_command("stop_voice_note"), "stop_voice_note")
         self.assertEqual(normalize_command("stop_voice_note_recording"), "stop_voice_note")
 
+    def test_recording_delete_aliases_normalize_to_canonical_name(self) -> None:
+        self.assertEqual(normalize_command("delete_recording_segment"), "delete_recording_segment")
+        self.assertEqual(normalize_command("delete_segment"), "delete_recording_segment")
+        self.assertEqual(normalize_command("delete_recording"), "delete_recording_segment")
+
 
 if __name__ == "__main__":
     unittest.main()

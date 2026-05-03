@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import uuid
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ DEFAULT_LABELS_PATH = DEFAULT_CORPUS_DIR / "labels.json"
 
 VALID_SAMPLE_TYPES = {"command", "voice_note"}
 COMMAND_CATEGORIES = {"colors", "shapes", "numbers", "other"}
+_SESSION_ID_RE = re.compile(r"[^a-z0-9_-]+")
 
 
 @dataclass
@@ -76,6 +78,60 @@ def write_labels(labels: list[dict[str, Any]], labels_path: Path | None = None) 
     path.write_text(json.dumps(labels, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
 
 
+def slugify_session_id(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    normalized = _SESSION_ID_RE.sub("_", normalized).strip("_")
+    return normalized or "session"
+
+
+def _session_labels_path(corpus_dir: Path, session_id: str) -> Path:
+    return corpus_dir / f"labels.{slugify_session_id(session_id)}.json"
+
+
+def _load_session_labels(path: Path, *, session_id: str, mode: str) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "session_id": session_id,
+            "mode": mode,
+            "auto_label_by_order": False,
+            "files": [],
+        }
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except json.JSONDecodeError as error:
+        raise CorpusError(
+            code="session_labels_json_invalid",
+            message=f"Session corpus labels file is not valid JSON: {path}",
+            setup_hint="Fix the session labels file or move it aside and save again.",
+            details={"path": str(path), "error": str(error)},
+        ) from error
+
+    if not isinstance(payload, dict):
+        raise CorpusError(
+            code="session_labels_json_shape_invalid",
+            message="Session corpus labels must be a JSON object.",
+            setup_hint="Use the labels.<session_id>.json session object shape.",
+            details={"path": str(path)},
+        )
+
+    files = payload.get("files")
+    if not isinstance(files, list):
+        files = []
+
+    return {
+        "session_id": str(payload.get("session_id") or session_id),
+        "mode": normalize_sample_type(payload.get("mode") or mode),
+        "auto_label_by_order": bool(payload.get("auto_label_by_order", False)),
+        "files": [item for item in files if isinstance(item, dict)],
+    }
+
+
+def _write_session_labels(payload: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
 def resolve_recording_wav(source_filename: str | None, recordings_dir: Path = DEFAULT_RECORDINGS_DIR) -> Path:
     if not source_filename or not str(source_filename).strip():
         raise CorpusError(
@@ -117,6 +173,20 @@ def resolve_recording_wav(source_filename: str | None, recordings_dir: Path = DE
     return resolved
 
 
+def delete_recording_segment(
+    filename: str | None,
+    *,
+    recordings_dir: Path = DEFAULT_RECORDINGS_DIR,
+) -> dict[str, Any]:
+    resolved = resolve_recording_wav(filename, recordings_dir)
+    resolved.unlink()
+    return {
+        "filename": resolved.name,
+        "deleted": True,
+        "path": str(resolved),
+    }
+
+
 def normalize_sample_type(value: str | None) -> str:
     sample_type = str(value or "command").strip().lower()
     if sample_type not in VALID_SAMPLE_TYPES:
@@ -152,6 +222,7 @@ def save_segment_to_corpus(
     sample_type: str | None = "command",
     category: str | None = "other",
     notes: str | None = "",
+    session_id: str | None = None,
     recordings_dir: Path = DEFAULT_RECORDINGS_DIR,
     corpus_dir: Path = DEFAULT_CORPUS_DIR,
     labels_path: Path | None = None,
@@ -173,8 +244,46 @@ def save_segment_to_corpus(
     shutil.copy2(source_path, destination_path)
 
     resolved_labels_path = labels_path or corpus_dir / "labels.json"
-    labels = load_labels(resolved_labels_path)
     relative_file = destination_path.relative_to(corpus_dir).as_posix()
+    normalized_session_id = str(session_id or "").strip()
+
+    if normalized_session_id:
+        session_labels_path = _session_labels_path(corpus_dir, normalized_session_id)
+        payload = _load_session_labels(
+            session_labels_path,
+            session_id=normalized_session_id,
+            mode=normalized_type,
+        )
+        files = payload["files"]
+        existing_file = next(
+            (file_entry for file_entry in files if file_entry.get("filename") == relative_file),
+            None,
+        )
+        file_entry = {
+            "filename": relative_file,
+            "expected": expected_text,
+            "notes": str(notes or "").strip(),
+        }
+        if normalized_type != payload.get("mode"):
+            file_entry["mode"] = normalized_type
+        if normalized_category:
+            file_entry["category"] = normalized_category
+
+        if existing_file:
+            existing_file.update(file_entry)
+            sample = existing_file
+        else:
+            files.append(file_entry)
+            sample = file_entry
+
+        payload["session_id"] = normalized_session_id
+        payload["mode"] = normalize_sample_type(payload.get("mode") or normalized_type)
+        payload["auto_label_by_order"] = bool(payload.get("auto_label_by_order", False))
+        payload["files"] = sorted(files, key=lambda item: str(item.get("filename") or ""))
+        _write_session_labels(payload, session_labels_path)
+        return dict(sample)
+
+    labels = load_labels(resolved_labels_path)
     existing = next((label for label in labels if label.get("file") == relative_file), None)
 
     if existing:

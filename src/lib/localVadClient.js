@@ -110,13 +110,17 @@ export function createLocalVadClient({
     arbitrateLatestSegment({ providers, provider, mode } = {}) {
       sendCommand("arbitrate_latest_segment", { providers, provider, mode });
     },
-    saveSegmentToCorpus({ sourceFilename, expected, type, category, notes } = {}) {
+    deleteRecordingSegment(filename) {
+      sendCommand("delete_recording_segment", { filename });
+    },
+    saveSegmentToCorpus({ sourceFilename, expected, type, category, notes, sessionId } = {}) {
       sendCommand("save_segment_to_corpus", {
         source_filename: sourceFilename,
         expected,
         type,
         category,
         notes,
+        session_id: sessionId,
       });
     },
     isConnected() {

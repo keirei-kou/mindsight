@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .asr import AsrArbiter, AsrProviderError, AsrRegistry, LocalSpeechConfig
 from .audio_capture import AudioCaptureConfig, SoundDeviceAudioCapture
-from .corpus import CorpusError, save_segment_to_corpus
+from .corpus import CorpusError, delete_recording_segment, save_segment_to_corpus
 from .protocol import normalize_command
 from .vad_engine import (
     VadConfig,
@@ -610,6 +610,7 @@ class LocalVadService:
         sample_type: str | None,
         category: str | None,
         notes: str | None = "",
+        session_id: str | None = None,
     ) -> None:
         try:
             sample = await asyncio.to_thread(
@@ -619,6 +620,7 @@ class LocalVadService:
                 sample_type=sample_type,
                 category=category,
                 notes=notes,
+                session_id=session_id,
                 recordings_dir=self.recordings_dir,
             )
             self._emit("corpus_sample_saved", sample=sample)
@@ -627,6 +629,34 @@ class LocalVadService:
         except Exception as error:
             self._emit(
                 "corpus_sample_error",
+                code="unexpected_error",
+                message=str(error),
+                setup_hint="Check the local speech engine console for details.",
+                details={},
+            )
+
+    async def delete_recording_segment(self, filename: str | None) -> None:
+        resolved_filename = Path(filename or "").name
+        try:
+            deleted = await asyncio.to_thread(
+                delete_recording_segment,
+                filename,
+                recordings_dir=self.recordings_dir,
+            )
+            latest_path = self.asr_registry.latest_segment_path
+            if latest_path is not None and Path(deleted["path"]).resolve() == latest_path.resolve():
+                self.asr_registry.latest_segment_path = None
+            self._emit("recording_segment_deleted", **deleted)
+        except CorpusError as error:
+            self._emit(
+                "recording_segment_error",
+                filename=resolved_filename,
+                **error.to_event_payload(),
+            )
+        except Exception as error:
+            self._emit(
+                "recording_segment_error",
+                filename=resolved_filename,
                 code="unexpected_error",
                 message=str(error),
                 setup_hint="Check the local speech engine console for details.",
@@ -762,6 +792,11 @@ async def vad_websocket(websocket: WebSocket) -> None:
                     sample_type=payload.get("sample_type") or payload.get("type"),
                     category=payload.get("category"),
                     notes=payload.get("notes"),
+                    session_id=payload.get("session_id"),
+                )
+            elif command == "delete_recording_segment":
+                await service.delete_recording_segment(
+                    payload.get("filename") or payload.get("source_filename") or payload.get("path")
                 )
             else:
                 service._emit("error", message=f"Unknown local VAD command: {command}")

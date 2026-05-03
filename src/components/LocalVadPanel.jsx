@@ -24,6 +24,34 @@ const COMMAND_ALIASES = {
   too: "two",
   won: "one",
 };
+const COMMAND_VOCABULARY = [
+  "red",
+  "blue",
+  "yellow",
+  "green",
+  "orange",
+  "purple",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "circle",
+  "oval",
+  "square",
+  "rectangle",
+  "triangle",
+  "diamond",
+  "star",
+  "wavy",
+  "cross",
+  "calibration",
+  "test",
+  "results",
+  "space",
+  "submit",
+];
 
 function formatClockTime(timestamp) {
   const date = new Date(timestamp);
@@ -102,8 +130,8 @@ function getConfidenceColor(value) {
 }
 
 function getStatusColor(status) {
-  if (status === "connected" || status === "listening" || status === "active" || status === "speech" || status === "ready" || status === "loaded") return LAB.success;
-  if (status === "checking" || status === "connecting" || status === "starting" || status === "stopping" || status === "loading" || status === "transcribing" || status === "arbitrating" || status === "saving" || status === "pending") return LAB.warning;
+  if (status === "connected" || status === "listening" || status === "active" || status === "speech" || status === "ready" || status === "loaded" || status === "saved") return LAB.success;
+  if (status === "checking" || status === "connecting" || status === "starting" || status === "stopping" || status === "loading" || status === "transcribing" || status === "arbitrating" || status === "saving" || status === "deleting" || status === "pending" || status === "needs_review") return LAB.warning;
   if (status === "error") return LAB.error;
   return LAB.subtext;
 }
@@ -173,6 +201,14 @@ function summarizeEvent(event) {
     return event.message || "corpus sample error";
   }
 
+  if (event.type === "recording_segment_deleted") {
+    return `recording segment deleted / ${formatValue(event.filename)}`;
+  }
+
+  if (event.type === "recording_segment_error") {
+    return event.message || "recording segment error";
+  }
+
   return event.type || "event";
 }
 
@@ -182,9 +218,11 @@ export function LocalVadPanel() {
   const selectedAsrProviderRef = useRef("vosk");
   const autoTranscribeRef = useRef(false);
   const autoTranscribeTouchedRef = useRef(false);
+  const arbitrationProvidersTouchedRef = useRef(false);
   const asrProvidersRef = useRef([]);
   const autoProcessedSegmentsRef = useRef(new Set());
   const corpusFormRef = useRef({
+    sessionId: "",
     expected: "",
     type: "command",
     category: "colors",
@@ -202,13 +240,14 @@ export function LocalVadPanel() {
   const [asrStatus, setAsrStatus] = useState("idle");
   const [asrErrorText, setAsrErrorText] = useState("");
   const [arbitrationMode, setArbitrationMode] = useState("command");
-  const [selectedArbitrationProviders, setSelectedArbitrationProviders] = useState(["vosk", "sherpa"]);
+  const [selectedArbitrationProviders, setSelectedArbitrationProviders] = useState([]);
   const [arbitrationStatus, setArbitrationStatus] = useState("idle");
   const [arbitrationErrorText, setArbitrationErrorText] = useState("");
   const [autoTranscribe, setAutoTranscribe] = useState(false);
   const [autoTranscribeMessage, setAutoTranscribeMessage] = useState("");
   const [selectedDebugFilename, setSelectedDebugFilename] = useState("");
   const [corpusForm, setCorpusForm] = useState({
+    sessionId: "",
     expected: "",
     type: "command",
     category: "colors",
@@ -329,6 +368,9 @@ export function LocalVadPanel() {
         sampleType: labelSnapshot.type,
         category: labelSnapshot.category,
         notes: labelSnapshot.notes.trim(),
+        sessionId: labelSnapshot.sessionId.trim(),
+        corpusStatus: labelSnapshot.expected.trim() ? "pending" : "needs_review",
+        corpusError: "",
       };
       setSelectedDebugFilename(segment.filename);
       setSegments((currentSegments) => [segment, ...currentSegments].slice(0, MAX_SEGMENTS));
@@ -350,6 +392,11 @@ export function LocalVadPanel() {
         if (shouldAutoTranscribe) {
           setAutoTranscribeMessage("");
         }
+      }
+      if (!arbitrationProvidersTouchedRef.current) {
+        setSelectedArbitrationProviders(providers
+          .filter((provider) => provider.loaded)
+          .map((provider) => provider.name));
       }
     } else if (event.type === "asr_model_loading") {
       setAsrStatus("loading");
@@ -422,20 +469,43 @@ export function LocalVadPanel() {
       }
     } else if (event.type === "corpus_sample_saved") {
       setCorpusStatus("ready");
-      setCorpusMessage(`Saved ${event.sample?.file || "labeled sample"}.`);
-      const savedFilename = getBasename(event.sample?.file);
+      const sampleFile = event.sample?.file || event.sample?.filename || "";
+      setCorpusMessage(`Saved ${sampleFile || "labeled sample"}.`);
+      const savedFilename = getBasename(sampleFile);
       if (savedFilename) {
         setSegmentLabelState(savedFilename, {
           expected: event.sample?.expected || "",
-          sampleType: event.sample?.type || "command",
+          sampleType: event.sample?.type || event.sample?.mode || "command",
           category: event.sample?.category || "other",
           notes: event.sample?.notes || "",
           corpusSaved: true,
+          corpusStatus: "saved",
+          corpusError: "",
         });
       }
     } else if (event.type === "corpus_sample_error") {
       setCorpusStatus("error");
       setCorpusMessage([event.message, event.setup_hint].filter(Boolean).join(" "));
+      if (event.filename) {
+        setSegmentLabelState(event.filename, {
+          corpusStatus: "needs_review",
+          corpusError: [event.message, event.setup_hint].filter(Boolean).join(" "),
+        });
+      }
+    } else if (event.type === "recording_segment_deleted") {
+      setCorpusStatus("ready");
+      setCorpusMessage(`Deleted ${event.filename}.`);
+      setSegments((currentSegments) => currentSegments.filter((segment) => segment.filename !== event.filename));
+      setSelectedDebugFilename((currentFilename) => (currentFilename === event.filename ? "" : currentFilename));
+    } else if (event.type === "recording_segment_error") {
+      setCorpusStatus("error");
+      setCorpusMessage([event.message, event.setup_hint].filter(Boolean).join(" "));
+      if (event.filename) {
+        setSegmentLabelState(event.filename, {
+          corpusStatus: "needs_review",
+          corpusError: [event.message, event.setup_hint].filter(Boolean).join(" "),
+        });
+      }
     }
   }, [appendSegmentArbitrationRun, arbitrationMode, maybeAutoTranscribeSegment, selectedArbitrationProviders, setSegmentArbitrationState, setSegmentAsrState, setSegmentLabelState]);
 
@@ -558,6 +628,7 @@ export function LocalVadPanel() {
   };
 
   const toggleArbitrationProvider = (providerName) => {
+    arbitrationProvidersTouchedRef.current = true;
     setSelectedArbitrationProviders((currentProviders) => {
       if (currentProviders.includes(providerName)) {
         return currentProviders.filter((provider) => provider !== providerName);
@@ -568,11 +639,17 @@ export function LocalVadPanel() {
 
   const runArbitration = (filename, useLatest = false) => {
     try {
-      const providers = selectedArbitrationProviders.length ? selectedArbitrationProviders : [selectedAsrProvider];
+      const providers = selectedArbitrationProviders;
       const targetFilename = filename || latestSegment?.filename || "";
       if (!useLatest && !targetFilename) {
         setArbitrationStatus("error");
         setArbitrationErrorText("Create a saved VAD segment before running arbitration.");
+        return;
+      }
+
+      if (!providers.length) {
+        setArbitrationStatus("error");
+        setArbitrationErrorText("Load and select at least one sidecar ASR provider before running arbitration.");
         return;
       }
 
@@ -600,39 +677,106 @@ export function LocalVadPanel() {
     }
   };
 
-  const saveSelectedSegmentToCorpus = () => {
-    if (!selectedSegment) {
+  const saveSegmentToCorpus = (segment) => {
+    if (!segment) {
       setCorpusStatus("error");
       setCorpusMessage("Select or create a saved VAD segment first.");
       return;
     }
 
-    if (!corpusForm.expected.trim()) {
+    const expected = String(segment.expected || "").trim();
+    if (!expected) {
       setCorpusStatus("error");
       setCorpusMessage("Enter expected text before saving a labeled sample.");
+      setSegmentLabelState(segment.filename, {
+        corpusStatus: "needs_review",
+        corpusError: "Expected label is required before saving.",
+      });
       return;
     }
 
     try {
       setCorpusStatus("saving");
       setCorpusMessage("");
-      setSegmentLabelState(selectedSegment.filename, {
-        expected: corpusForm.expected.trim(),
-        sampleType: corpusForm.type,
-        category: corpusForm.category,
-        notes: corpusForm.notes.trim(),
+      setSegmentLabelState(segment.filename, {
+        corpusStatus: "saving",
+        corpusError: "",
       });
       clientRef.current?.saveSegmentToCorpus({
-        sourceFilename: selectedSegment.filename,
-        expected: corpusForm.expected.trim(),
-        type: corpusForm.type,
-        category: corpusForm.category,
-        notes: corpusForm.notes.trim(),
+        sourceFilename: segment.filename,
+        expected,
+        type: segment.sampleType || "command",
+        category: segment.category || "other",
+        notes: segment.notes || "",
+        sessionId: segment.sessionId || "",
       });
     } catch (error) {
       setCorpusStatus("error");
       setCorpusMessage(error instanceof Error ? error.message : "Unable to save segment to corpus.");
+      setSegmentLabelState(segment.filename, {
+        corpusStatus: "needs_review",
+        corpusError: error instanceof Error ? error.message : "Unable to save segment to corpus.",
+      });
     }
+  };
+
+  const deleteRecordingSegment = (segment) => {
+    if (!segment) {
+      return;
+    }
+
+    if (!window.confirm(`Delete ${segment.filename}? This removes the WAV from local_speech_engine/recordings.`)) {
+      return;
+    }
+
+    try {
+      setCorpusStatus("saving");
+      setCorpusMessage(`Deleting ${segment.filename}...`);
+      setSegmentLabelState(segment.filename, {
+        corpusStatus: "deleting",
+        corpusError: "",
+      });
+      clientRef.current?.deleteRecordingSegment(segment.filename);
+    } catch (error) {
+      setCorpusStatus("error");
+      setCorpusMessage(error instanceof Error ? error.message : "Unable to delete segment.");
+      setSegmentLabelState(segment.filename, {
+        corpusStatus: "needs_review",
+        corpusError: error instanceof Error ? error.message : "Unable to delete segment.",
+      });
+    }
+  };
+
+  const toggleIgnoreSegment = (segment) => {
+    if (!segment) {
+      return;
+    }
+
+    const isIgnored = segment.corpusStatus === "ignored";
+    setSegmentLabelState(segment.filename, {
+      corpusStatus: isIgnored ? (segment.expected ? "pending" : "needs_review") : "ignored",
+      corpusError: "",
+    });
+  };
+
+  const applySelectedSegmentLabel = () => {
+    if (!selectedSegment) {
+      setCorpusStatus("error");
+      setCorpusMessage("Select or create a saved VAD segment first.");
+      return;
+    }
+
+    setSegmentLabelState(selectedSegment.filename, {
+      sessionId: corpusForm.sessionId.trim(),
+      expected: corpusForm.expected.trim(),
+      sampleType: corpusForm.type,
+      category: corpusForm.category,
+      notes: corpusForm.notes.trim(),
+      corpusStatus: corpusForm.expected.trim() ? "pending" : "needs_review",
+      corpusError: "",
+    });
+    setCorpusStatus("ready");
+    setCorpusMessage(`Updated label snapshot for ${selectedSegment.filename}.`);
   };
 
   useEffect(() => () => {
@@ -694,10 +838,17 @@ export function LocalVadPanel() {
       confidence,
       expectedRaw: segment.expected || "",
       expected,
+      sampleType: segment.sampleType || "command",
+      category: segment.category || "other",
+      notes: segment.notes || "",
+      sessionId: segment.sessionId || "",
+      corpusStatus: segment.corpusStatus || (segment.corpusSaved ? "saved" : segment.expected ? "pending" : "needs_review"),
+      corpusError: segment.corpusError || "",
       result,
       status,
       error: providerTranscript?.error || "",
       selected: selectedSegmentFilename === segment.filename,
+      segment,
     };
   }), [segments, selectedAsrProvider, selectedSegmentFilename]);
   const selectedArbitration = selectedSegment?.arbitration || null;
@@ -726,7 +877,50 @@ export function LocalVadPanel() {
   }, [selectedArbitration, selectedArbitrationResult, selectedSegmentFilename]);
   const autoTranscribeLabel = autoTranscribe ? "ON" : "OFF";
   const autoTranscribeColor = autoTranscribe ? LAB.success : LAB.subtext;
-  const isLabelingDisabled = !selectedSegment;
+  const capturedHeaderCellStyle = {
+    padding: "8px",
+    borderBottom: `1px solid ${LAB.border}`,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+  const capturedCellStyle = {
+    padding: "8px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+  const recordingContextFieldStyle = {
+    display: "grid",
+    gridTemplateRows: "20px 38px",
+    gap: "6px",
+    alignItems: "start",
+    minWidth: 0,
+    color: LAB.text,
+    fontSize: "0.78rem",
+    fontWeight: 700,
+  };
+  const recordingContextLabelTextStyle = {
+    display: "block",
+    height: "20px",
+    lineHeight: "20px",
+    overflow: "hidden",
+    textAlign: "center",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+  const recordingContextControlStyle = {
+    boxSizing: "border-box",
+    width: "100%",
+    height: "38px",
+    minHeight: "38px",
+    background: LAB.surface,
+    border: `1px solid ${LAB.border}`,
+    color: LAB.text,
+    borderRadius: "6px",
+    padding: "7px 9px",
+    font: "inherit",
+  };
 
   const toggleVad = () => {
     if (isVadToggleDisabled) {
@@ -784,6 +978,84 @@ export function LocalVadPanel() {
           {isListening ? "Stop VAD" : isStopping ? "Stopping..." : "Start VAD"}
         </button>
       </div>
+
+      <section style={{ display: "grid", gap: "10px", background: LAB.surfaceMuted, border: `1px solid ${LAB.border}`, borderRadius: "8px", padding: "12px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+          <div style={{ display: "grid", gap: "3px" }}>
+            <h3 style={{ margin: 0, color: LAB.text, fontSize: "0.94rem", fontWeight: 800 }}>Recording Context</h3>
+            <span style={{ color: LAB.subtext, fontSize: "0.76rem" }}>Choose the label before recording. New captured segments snapshot these values for corpus review.</span>
+          </div>
+          <StatusPill label="corpus" value={corpusStatus} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "10px", alignItems: "start" }}>
+          <label style={recordingContextFieldStyle}>
+            <span style={recordingContextLabelTextStyle}>Session ID</span>
+            <input
+              value={corpusForm.sessionId}
+              onChange={(event) => setCorpusForm((current) => ({ ...current, sessionId: event.target.value }))}
+              placeholder="colors_red_2026-05-03"
+              style={recordingContextControlStyle}
+            />
+          </label>
+          <label style={recordingContextFieldStyle}>
+            <span style={recordingContextLabelTextStyle}>Expected label</span>
+            <input
+              value={corpusForm.expected}
+              onChange={(event) => setCorpusForm((current) => ({ ...current, expected: event.target.value }))}
+              placeholder="red"
+              list="local-vad-command-vocabulary"
+              style={recordingContextControlStyle}
+            />
+            <datalist id="local-vad-command-vocabulary">
+              {COMMAND_VOCABULARY.map((command) => (
+                <option key={command} value={command} />
+              ))}
+            </datalist>
+          </label>
+          <label style={recordingContextFieldStyle}>
+            <span style={recordingContextLabelTextStyle}>Type</span>
+            <select
+              value={corpusForm.type}
+              onChange={(event) => {
+                const nextType = event.target.value;
+                setCorpusForm((current) => ({
+                  ...current,
+                  type: nextType,
+                  category: nextType === "command" ? "colors" : "trial_note",
+                }));
+              }}
+              style={recordingContextControlStyle}
+            >
+              <option value="command">command</option>
+              <option value="voice_note">voice_note</option>
+            </select>
+          </label>
+          <label style={recordingContextFieldStyle}>
+            <span style={recordingContextLabelTextStyle}>Category</span>
+            <select
+              value={corpusForm.category}
+              onChange={(event) => setCorpusForm((current) => ({ ...current, category: event.target.value }))}
+              style={recordingContextControlStyle}
+            >
+              {corpusCategoryOptions.map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </select>
+          </label>
+          <label style={recordingContextFieldStyle}>
+            <span style={recordingContextLabelTextStyle}>Notes</span>
+            <input
+              value={corpusForm.notes}
+              onChange={(event) => setCorpusForm((current) => ({ ...current, notes: event.target.value }))}
+              placeholder="optional"
+              style={recordingContextControlStyle}
+            />
+          </label>
+        </div>
+        <div style={{ color: corpusStatus === "error" ? LAB.error : corpusStatus === "ready" ? LAB.success : LAB.subtext, fontSize: "0.78rem", lineHeight: 1.45, overflowWrap: "anywhere" }}>
+          {corpusMessage || "Workflow: connect, choose label/category/session, record segments, delete noise, then save clean clips from the captured segment table."}
+        </div>
+      </section>
 
       <section style={{ display: "grid", gap: "10px", background: LAB.surfaceMuted, border: `1px solid ${LAB.border}`, borderRadius: "8px", padding: "12px" }}>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
@@ -873,8 +1145,20 @@ export function LocalVadPanel() {
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                 {arbitrationProviderOptions.map((provider) => {
                   const checked = selectedArbitrationProviders.includes(provider.name);
+                  const providerLoaded = Boolean(provider.loaded);
+                  const providerAvailable = provider.available !== false;
+                  const providerStatusLabel = providerLoaded
+                    ? "loaded"
+                    : providerAvailable
+                      ? "not loaded"
+                      : "unavailable";
+                  const providerStatusColor = providerLoaded
+                    ? LAB.success
+                    : providerAvailable
+                      ? LAB.warning
+                      : LAB.subtext;
                   return (
-                    <label key={provider.name} style={{ display: "inline-flex", alignItems: "center", gap: "6px", minHeight: "30px", color: provider.available === false ? LAB.subtext : LAB.text, fontSize: "0.78rem" }}>
+                    <label key={provider.name} title={provider.message || provider.setup_hint || providerStatusLabel} style={{ display: "inline-flex", alignItems: "center", gap: "6px", minHeight: "30px", color: providerAvailable ? LAB.text : LAB.subtext, fontSize: "0.78rem" }}>
                       <input
                         type="checkbox"
                         checked={checked}
@@ -883,6 +1167,9 @@ export function LocalVadPanel() {
                         style={{ accentColor: LAB.primary }}
                       />
                       <span>{provider.name}</span>
+                      <span style={{ color: providerStatusColor, border: `1px solid ${providerStatusColor}55`, background: providerLoaded ? `${LAB.success}12` : LAB.surfaceMuted, borderRadius: "999px", padding: "1px 6px", fontSize: "0.68rem", lineHeight: 1.35 }}>
+                        {providerStatusLabel}
+                      </span>
                     </label>
                   );
                 })}
@@ -963,24 +1250,38 @@ export function LocalVadPanel() {
         </section>
         <div style={{ display: "grid", gap: "8px" }}>
           <h4 style={{ margin: 0, color: LAB.text, fontSize: "0.88rem", fontWeight: 800 }}>Captured Segments</h4>
-          <div style={{ maxHeight: "420px", overflowY: "auto", overflowX: "hidden", border: `1px solid ${LAB.border}`, borderRadius: "7px", background: LAB.surface }}>
-            <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", color: LAB.text, fontSize: "0.76rem" }}>
+          <div style={{ maxHeight: "420px", overflowY: "auto", overflowX: "auto", border: `1px solid ${LAB.border}`, borderRadius: "7px", background: LAB.surface }}>
+            <table style={{ width: "100%", minWidth: "1120px", tableLayout: "fixed", borderCollapse: "collapse", color: LAB.text, fontSize: "0.76rem" }}>
+              <colgroup>
+                <col style={{ width: "44px" }} />
+                <col style={{ width: "220px" }} />
+                <col style={{ width: "82px" }} />
+                <col style={{ width: "220px" }} />
+                <col style={{ width: "130px" }} />
+                <col style={{ width: "92px" }} />
+                <col style={{ width: "110px" }} />
+                <col style={{ width: "78px" }} />
+                <col style={{ width: "100px" }} />
+                <col style={{ width: "190px" }} />
+              </colgroup>
               <thead>
                 <tr style={{ background: LAB.primarySoft, color: LAB.text, textAlign: "left" }}>
-                  <th style={{ padding: "8px", borderBottom: `1px solid ${LAB.border}`, width: "38px" }}>#</th>
-                  <th style={{ padding: "8px", borderBottom: `1px solid ${LAB.border}`, width: "24%" }}>Segment</th>
-                  <th style={{ padding: "8px", borderBottom: `1px solid ${LAB.border}`, width: "78px" }}>Duration</th>
-                  <th style={{ padding: "8px", borderBottom: `1px solid ${LAB.border}`, width: "22%" }}>Transcript</th>
-                  <th style={{ padding: "8px", borderBottom: `1px solid ${LAB.border}`, width: "13%" }}>Normalized</th>
-                  <th style={{ padding: "8px", borderBottom: `1px solid ${LAB.border}`, width: "84px" }}>Confidence</th>
-                  <th style={{ padding: "8px", borderBottom: `1px solid ${LAB.border}`, width: "12%" }}>Expected</th>
-                  <th style={{ padding: "8px", borderBottom: `1px solid ${LAB.border}`, width: "70px" }}>Result</th>
+                  <th style={capturedHeaderCellStyle}>#</th>
+                  <th style={capturedHeaderCellStyle}>Segment</th>
+                  <th style={capturedHeaderCellStyle}>Duration</th>
+                  <th style={capturedHeaderCellStyle}>Transcript</th>
+                  <th style={capturedHeaderCellStyle}>Normalized</th>
+                  <th style={capturedHeaderCellStyle}>Confidence</th>
+                  <th style={capturedHeaderCellStyle}>Expected</th>
+                  <th style={capturedHeaderCellStyle}>Result</th>
+                  <th style={capturedHeaderCellStyle}>Corpus</th>
+                  <th style={capturedHeaderCellStyle}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {transcriptRows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ padding: "14px", color: LAB.subtext }}>
+                    <td colSpan={10} style={{ padding: "14px", color: LAB.subtext }}>
                       Connect the engine, start VAD, then speak a short command like "red."
                     </td>
                   </tr>
@@ -991,19 +1292,57 @@ export function LocalVadPanel() {
                     style={{ borderBottom: `1px solid ${LAB.border}`, cursor: "pointer", background: row.selected ? LAB.primarySoft : LAB.surface }}
                     title="Select segment for Advanced / Debug re-run"
                   >
-                    <td style={{ padding: "8px", color: LAB.primary, fontVariantNumeric: "tabular-nums", fontWeight: 800 }}>{row.index}</td>
-                    <td style={{ padding: "8px", color: LAB.text, overflowWrap: "anywhere" }}>{row.filename}</td>
-                    <td style={{ padding: "8px", fontVariantNumeric: "tabular-nums" }}>{row.duration}</td>
-                    <td style={{ padding: "8px", color: row.status === "error" ? LAB.error : row.status === "pending" ? LAB.subtext : LAB.text, overflowWrap: "anywhere" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                        <span>{row.rawTranscript}</span>
-                        <span style={{ border: `1px solid ${LAB.border}`, background: LAB.surfaceMuted, color: LAB.subtext, borderRadius: "999px", padding: "1px 6px", fontSize: "0.68rem", lineHeight: 1.4 }}>{row.provider}</span>
+                    <td style={{ ...capturedCellStyle, color: LAB.primary, fontVariantNumeric: "tabular-nums", fontWeight: 800 }}>{row.index}</td>
+                    <td style={{ ...capturedCellStyle, color: LAB.text }} title={row.filename}>{row.filename}</td>
+                    <td style={{ ...capturedCellStyle, fontVariantNumeric: "tabular-nums" }}>{row.duration}</td>
+                    <td style={{ ...capturedCellStyle, color: row.status === "error" ? LAB.error : row.status === "pending" ? LAB.subtext : LAB.text }} title={row.rawTranscript}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", minWidth: 0, maxWidth: "100%" }}>
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.rawTranscript}</span>
+                        <span style={{ flex: "0 0 auto", border: `1px solid ${LAB.border}`, background: LAB.surfaceMuted, color: LAB.subtext, borderRadius: "999px", padding: "1px 6px", fontSize: "0.68rem", lineHeight: 1.4 }}>{row.provider}</span>
                       </span>
                     </td>
-                    <td style={{ padding: "8px", color: row.normalizedTranscript ? LAB.text : LAB.subtext, overflowWrap: "anywhere" }}>{row.normalizedTranscript || "pending"}</td>
-                    <td style={{ padding: "8px", color: getConfidenceColor(row.confidence), fontVariantNumeric: "tabular-nums" }}>{formatConfidence(row.confidence)}</td>
-                    <td style={{ padding: "8px", color: row.expectedRaw ? LAB.text : LAB.subtext, overflowWrap: "anywhere" }}>{row.expectedRaw || "none"}</td>
-                    <td style={{ padding: "8px", color: row.result.color, fontWeight: 850 }}>{row.result.label}</td>
+                    <td style={{ ...capturedCellStyle, color: row.normalizedTranscript ? LAB.text : LAB.subtext }} title={row.normalizedTranscript || "pending"}>{row.normalizedTranscript || "pending"}</td>
+                    <td style={{ ...capturedCellStyle, color: getConfidenceColor(row.confidence), fontVariantNumeric: "tabular-nums" }}>{formatConfidence(row.confidence)}</td>
+                    <td style={{ ...capturedCellStyle, color: row.expectedRaw ? LAB.text : LAB.subtext }} title={row.expectedRaw || "none"}>{row.expectedRaw || "none"}</td>
+                    <td style={{ ...capturedCellStyle, color: row.result.color, fontWeight: 850 }}>{row.result.label}</td>
+                    <td style={{ ...capturedCellStyle, color: getStatusColor(row.corpusStatus), fontWeight: 850 }} title={row.corpusError || row.corpusStatus}>{row.corpusStatus}</td>
+                    <td style={{ ...capturedCellStyle }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            saveSegmentToCorpus(row.segment);
+                          }}
+                          disabled={!isConnected || !row.expectedRaw || row.corpusStatus === "saving" || row.corpusStatus === "saved" || row.corpusStatus === "deleting"}
+                          style={{ minHeight: "28px", background: LAB.primary, color: "#ffffff", border: `1px solid ${LAB.primary}`, borderRadius: "5px", padding: "4px 7px", font: "inherit", fontSize: "0.7rem", fontWeight: 750, cursor: !isConnected || !row.expectedRaw || row.corpusStatus === "saving" || row.corpusStatus === "saved" || row.corpusStatus === "deleting" ? "not-allowed" : "pointer", opacity: !isConnected || !row.expectedRaw || row.corpusStatus === "saving" || row.corpusStatus === "saved" || row.corpusStatus === "deleting" ? 0.62 : 1 }}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleIgnoreSegment(row.segment);
+                          }}
+                          disabled={row.corpusStatus === "saved" || row.corpusStatus === "deleting"}
+                          style={{ minHeight: "28px", background: LAB.surfaceMuted, color: LAB.text, border: `1px solid ${LAB.border}`, borderRadius: "5px", padding: "4px 7px", font: "inherit", fontSize: "0.7rem", fontWeight: 750, cursor: row.corpusStatus === "saved" || row.corpusStatus === "deleting" ? "not-allowed" : "pointer", opacity: row.corpusStatus === "saved" || row.corpusStatus === "deleting" ? 0.62 : 1 }}
+                        >
+                          {row.corpusStatus === "ignored" ? "Unignore" : "Ignore"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            deleteRecordingSegment(row.segment);
+                          }}
+                          disabled={!isConnected || row.corpusStatus === "deleting"}
+                          style={{ minHeight: "28px", background: LAB.error, color: "#ffffff", border: `1px solid ${LAB.error}`, borderRadius: "5px", padding: "4px 7px", font: "inherit", fontSize: "0.7rem", fontWeight: 750, cursor: !isConnected || row.corpusStatus === "deleting" ? "not-allowed" : "pointer", opacity: !isConnected || row.corpusStatus === "deleting" ? 0.62 : 1 }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1038,6 +1377,17 @@ export function LocalVadPanel() {
             >
               {isDebugLatestSegment ? "Re-run transcription on latest segment" : "Re-run transcription on selected segment"}
             </button>
+            <button
+              type="button"
+              onClick={applySelectedSegmentLabel}
+              disabled={!selectedSegment}
+              style={{ minHeight: "36px", background: LAB.primary, color: "#ffffff", border: `1px solid ${LAB.primary}`, borderRadius: "6px", padding: "8px 11px", font: "inherit", fontWeight: 750, cursor: !selectedSegment ? "not-allowed" : "pointer", opacity: !selectedSegment ? 0.7 : 1 }}
+            >
+              Apply Recording Context to selected segment
+            </button>
+          </div>
+          <div style={{ marginTop: "8px", color: LAB.subtext, fontSize: "0.76rem", lineHeight: 1.45, overflowWrap: "anywhere" }}>
+            Use this only when a captured segment needs a corrected label snapshot. Saving still happens from the row-level Save button in Captured Segments.
           </div>
           {selectedProviderStatus && (
             <div style={{ marginTop: "10px", color: selectedProviderStatus.available ? LAB.success : LAB.warning, fontSize: "0.78rem", lineHeight: 1.45, overflowWrap: "anywhere" }}>
@@ -1059,79 +1409,6 @@ export function LocalVadPanel() {
             ))}
           </div>
         </details>
-      </section>
-
-      <section style={{ display: "grid", gap: "10px", background: LAB.surfaceMuted, border: `1px solid ${LAB.border}`, borderRadius: "8px", padding: "12px" }}>
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
-          <h3 style={{ margin: 0, color: LAB.text, fontSize: "0.94rem", fontWeight: 800 }}>Label Selected Segment</h3>
-          <StatusPill label="corpus" value={corpusStatus} />
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px", alignItems: "end" }}>
-          <label style={{ display: "grid", gap: "6px", color: LAB.text, fontSize: "0.78rem", fontWeight: 700 }}>
-            Expected
-            <input
-              value={corpusForm.expected}
-              onChange={(event) => setCorpusForm((current) => ({ ...current, expected: event.target.value }))}
-              placeholder="red"
-              disabled={isLabelingDisabled}
-              style={{ minHeight: "36px", background: isLabelingDisabled ? LAB.surfaceMuted : LAB.surface, border: `1px solid ${LAB.border}`, color: LAB.text, borderRadius: "6px", padding: "7px 9px", font: "inherit", opacity: isLabelingDisabled ? 0.7 : 1 }}
-            />
-          </label>
-          <label style={{ display: "grid", gap: "6px", color: LAB.text, fontSize: "0.78rem", fontWeight: 700 }}>
-            Type
-            <select
-              value={corpusForm.type}
-              disabled={isLabelingDisabled}
-              onChange={(event) => {
-                const nextType = event.target.value;
-                setCorpusForm((current) => ({
-                  ...current,
-                  type: nextType,
-                  category: nextType === "command" ? "colors" : "trial_note",
-                }));
-              }}
-              style={{ minHeight: "36px", background: isLabelingDisabled ? LAB.surfaceMuted : LAB.surface, border: `1px solid ${LAB.border}`, color: LAB.text, borderRadius: "6px", padding: "7px 9px", font: "inherit", opacity: isLabelingDisabled ? 0.7 : 1 }}
-            >
-              <option value="command">command</option>
-              <option value="voice_note">voice_note</option>
-            </select>
-          </label>
-          <label style={{ display: "grid", gap: "6px", color: LAB.text, fontSize: "0.78rem", fontWeight: 700 }}>
-            Category
-            <select
-              value={corpusForm.category}
-              onChange={(event) => setCorpusForm((current) => ({ ...current, category: event.target.value }))}
-              disabled={isLabelingDisabled}
-              style={{ minHeight: "36px", background: isLabelingDisabled ? LAB.surfaceMuted : LAB.surface, border: `1px solid ${LAB.border}`, color: LAB.text, borderRadius: "6px", padding: "7px 9px", font: "inherit", opacity: isLabelingDisabled ? 0.7 : 1 }}
-            >
-              {corpusCategoryOptions.map((category) => (
-                <option key={category} value={category}>{category}</option>
-              ))}
-            </select>
-          </label>
-          <label style={{ display: "grid", gap: "6px", color: LAB.text, fontSize: "0.78rem", fontWeight: 700 }}>
-            Notes
-            <input
-              value={corpusForm.notes}
-              onChange={(event) => setCorpusForm((current) => ({ ...current, notes: event.target.value }))}
-              placeholder="optional"
-              disabled={isLabelingDisabled}
-              style={{ minHeight: "36px", background: isLabelingDisabled ? LAB.surfaceMuted : LAB.surface, border: `1px solid ${LAB.border}`, color: LAB.text, borderRadius: "6px", padding: "7px 9px", font: "inherit", opacity: isLabelingDisabled ? 0.7 : 1 }}
-            />
-          </label>
-          <button
-            type="button"
-            onClick={saveSelectedSegmentToCorpus}
-            disabled={!isConnected || isLabelingDisabled || corpusStatus === "saving"}
-            style={{ minHeight: "36px", background: LAB.primary, color: "#ffffff", border: `1px solid ${LAB.primary}`, borderRadius: "6px", padding: "8px 11px", font: "inherit", fontWeight: 750, cursor: !isConnected || isLabelingDisabled || corpusStatus === "saving" ? "not-allowed" : "pointer", opacity: !isConnected || isLabelingDisabled || corpusStatus === "saving" ? 0.7 : 1 }}
-          >
-            {corpusStatus === "saving" ? "Saving..." : "Save Selected Segment"}
-          </button>
-        </div>
-        <div style={{ color: corpusStatus === "error" ? LAB.error : corpusStatus === "ready" ? LAB.success : LAB.subtext, fontSize: "0.78rem", lineHeight: 1.45, overflowWrap: "anywhere" }}>
-          {selectedSegment ? `Selected: ${selectedSegment.filename}` : "Select a captured segment to label it for the corpus."}
-          {corpusMessage ? ` / ${corpusMessage}` : ""}
-        </div>
       </section>
 
       {errorText && (
