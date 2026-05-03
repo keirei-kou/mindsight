@@ -174,6 +174,8 @@ Spoken instruction direction:
 
 The current browser SpeechRecognition path can miss short leading words such as `red`, `blue`, `one`, `two`, and `six`. PsiLabs needs a provider abstraction so recognition paths can be swapped or compared without changing session command logic.
 
+Diagnostics milestone shipped and archived (`docs/ARCHIVED_TASKS.md`, 2026-04-30 Local ASR Provider Diagnostics): shared selector, Vosk Local, Sherpa ONNX Local, prebuffer utilities, `#voice-asr-test`, and `docs/VOICE_ASR_LOCAL_MODELS.md`.
+
 Current checkpoint:
 
 - Browser Speech remains the baseline provider.
@@ -259,6 +261,8 @@ Open decisions:
 - How, if at all, the diagnostic provider selector should later integrate into active session UX.
 
 ### Shared Voice Engine
+
+Architecture documentation for Phase 1 (layered engine, event direction, Tauri-first desktop, backpressure, Silero-first VAD, Next.js boundary) is complete in `docs/SHARED_VOICE_ENGINE.md`; see `docs/ARCHIVED_TASKS.md` (2026-05-03 Shared Voice Engine Architecture Documentation). Runtime implementation, sidecar packaging, and PsiLabs adapter work remain future phases.
 
 PsiLabs should grow from the current browser/local-provider diagnostics toward a reusable Shared Voice Engine. The engine should be app-agnostic, Python-based, and responsible for audio capture, VAD, ASR adapters, normalization profiles, mode routing, and stable voice-event emission. PsiLabs consumes those events through an app-specific adapter.
 
