@@ -36,8 +36,14 @@ class LocalSpeechConfig:
         return cls(
             project_root=project_root,
             recordings_dir=recordings_dir,
-            vosk_model_path=optional_path("LOCAL_SPEECH_VOSK_MODEL_PATH", project_root / "public" / "models" / "vosk"),
-            sherpa_model_dir=optional_path("LOCAL_SPEECH_SHERPA_MODEL_DIR", project_root / "public" / "models" / "sherpa"),
+            vosk_model_path=optional_path(
+                "LOCAL_SPEECH_VOSK_MODEL_PATH",
+                project_root / "local_speech_engine" / "models" / "vosk" / "vosk-model-small-en-us-0.15",
+            ),
+            sherpa_model_dir=optional_path(
+                "LOCAL_SPEECH_SHERPA_MODEL_DIR",
+                project_root / "local_speech_engine" / "models" / "sherpa" / "sherpa-onnx-streaming-zipformer-en-20M-2023-02-17",
+            ),
             default_provider=default_provider,
             enable_vosk=parse_bool(os.environ.get("LOCAL_SPEECH_ENABLE_VOSK"), True),
             enable_sherpa=parse_bool(os.environ.get("LOCAL_SPEECH_ENABLE_SHERPA"), True),

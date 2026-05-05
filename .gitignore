@@ -20,6 +20,8 @@ local_speech_engine/audio_corpus/**/*.wav
 !local_speech_engine/audio_corpus/**/.gitkeep
 local_speech_engine/benchmark_results/*
 !local_speech_engine/benchmark_results/.gitkeep
+local_speech_engine/models/
+public/models/
 local_speech_engine/tests/tmp*/
 local_speech_engine/tests/_asr_test_data/
 local_speech_engine/tests/_corpus_test_data/

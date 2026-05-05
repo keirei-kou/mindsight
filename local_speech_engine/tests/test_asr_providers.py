@@ -10,6 +10,8 @@ import wave
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy  # noqa: F401
+
 from local_speech_engine.asr.base import AsrProviderError
 from local_speech_engine.asr.config import LocalSpeechConfig
 from local_speech_engine.asr.registry import AsrRegistry
@@ -82,6 +84,60 @@ def make_mock_vosk_module() -> types.SimpleNamespace:
     )
 
 
+class MockSherpaStream:
+    def __init__(self) -> None:
+        self.accepted_sample_rates: list[int] = []
+        self.accepted_sample_counts: list[int] = []
+        self.finished = False
+
+    def accept_waveform(self, sample_rate: int, samples: object) -> None:
+        self.accepted_sample_rates.append(sample_rate)
+        self.accepted_sample_counts.append(len(samples))  # type: ignore[arg-type]
+
+    def input_finished(self) -> None:
+        self.finished = True
+
+
+class MockOnlineSherpaRecognizer:
+    last_instance: "MockOnlineSherpaRecognizer | None" = None
+    instances: list["MockOnlineSherpaRecognizer"] = []
+    result_queue: list[str] = []
+
+    def __init__(self) -> None:
+        self.ready_checks = 0
+        self.decode_calls = 0
+        self.stream = MockSherpaStream()
+        self.result_text = self.result_queue.pop(0) if self.result_queue else "red"
+        MockOnlineSherpaRecognizer.last_instance = self
+        MockOnlineSherpaRecognizer.instances.append(self)
+
+    @classmethod
+    def from_transducer(cls, **_kwargs: object) -> "MockOnlineSherpaRecognizer":
+        return cls()
+
+    def create_stream(self) -> MockSherpaStream:
+        return self.stream
+
+    def is_ready(self, _stream: MockSherpaStream) -> bool:
+        self.ready_checks += 1
+        return self.ready_checks <= 2
+
+    def decode_stream(self, _stream: MockSherpaStream) -> None:
+        self.decode_calls += 1
+
+    def get_result(self, _stream: MockSherpaStream) -> str:
+        return self.result_text
+
+
+def make_mock_sherpa_module() -> types.SimpleNamespace:
+    MockOnlineSherpaRecognizer.last_instance = None
+    MockOnlineSherpaRecognizer.instances = []
+    return types.SimpleNamespace(
+        OnlineRecognizer=MockOnlineSherpaRecognizer,
+        OfflineRecognizer=types.SimpleNamespace(from_transducer=lambda **_kwargs: None),
+    )
+
+
 class AsrProviderTests(unittest.TestCase):
     def tearDown(self) -> None:
         if TEST_ROOT.exists():
@@ -145,14 +201,66 @@ class AsrProviderTests(unittest.TestCase):
         self.assertEqual({status.name for status in statuses}, {"vosk", "sherpa"})
         self.assertEqual(transcript.text, "red")
 
-    def test_sherpa_scaffold_reports_structured_error(self) -> None:
+    def test_sherpa_reports_structured_missing_model_error(self) -> None:
         provider = SherpaOnnxAsrProvider(model_dir=TEST_ROOT / "sherpa", project_root=PROJECT_ROOT)
 
         with self.assertRaises(AsrProviderError) as context:
             provider.load()
 
-        self.assertEqual(context.exception.code, "provider_scaffolded")
-        self.assertIn("No fake transcription", context.exception.setup_hint)
+        self.assertEqual(context.exception.code, "model_dir_missing")
+        self.assertIn("Sherpa ONNX streaming or offline transducer model", context.exception.setup_hint)
+
+    def test_sherpa_streaming_transcribes_with_online_recognizer_and_diagnostics(self) -> None:
+        reset_test_root()
+        model_dir = TEST_ROOT / "sherpa-onnx-streaming-test-model"
+        model_dir.mkdir()
+        (model_dir / "tokens.txt").write_text("red\n", encoding="utf-8")
+        (model_dir / "encoder.onnx").write_bytes(b"encoder")
+        (model_dir / "decoder.onnx").write_bytes(b"decoder")
+        (model_dir / "joiner.onnx").write_bytes(b"joiner")
+        wav_path = make_test_wav(RECORDINGS_DIR / "asr_test_sherpa_short.wav")
+        provider = SherpaOnnxAsrProvider(model_dir=model_dir, project_root=PROJECT_ROOT)
+
+        with patch.dict(sys.modules, {"sherpa_onnx": make_mock_sherpa_module()}):
+            status = provider.load()
+            transcript = provider.transcribe_wav(wav_path)
+
+        recognizer = MockOnlineSherpaRecognizer.last_instance
+        self.assertIsNotNone(recognizer)
+        assert recognizer is not None
+        self.assertTrue(status.loaded)
+        self.assertEqual(transcript.text, "red")
+        self.assertEqual(transcript.details["model_kind"], "online")
+        self.assertEqual(transcript.details["leading_padding_ms"], 500)
+        self.assertEqual(transcript.details["tail_padding_ms"], 2000)
+        self.assertEqual(transcript.details["decode_iterations"], 2)
+        self.assertEqual(transcript.details["raw_result_type"], "str")
+        self.assertGreater(transcript.details["sample_count"], 0)
+        self.assertGreater(transcript.details["max_abs_amplitude"], 0)
+        self.assertTrue(recognizer.stream.finished)
+        self.assertEqual(recognizer.stream.accepted_sample_rates, [16000, 16000, 16000])
+        self.assertEqual(recognizer.stream.accepted_sample_counts[0], 8000)
+        self.assertEqual(recognizer.stream.accepted_sample_counts[-1], 32000)
+
+    def test_sherpa_streaming_retries_short_non_silent_blank_with_modified_beam_search(self) -> None:
+        reset_test_root()
+        model_dir = TEST_ROOT / "sherpa-onnx-streaming-test-model"
+        model_dir.mkdir()
+        (model_dir / "tokens.txt").write_text("red\n", encoding="utf-8")
+        (model_dir / "encoder.onnx").write_bytes(b"encoder")
+        (model_dir / "decoder.onnx").write_bytes(b"decoder")
+        (model_dir / "joiner.onnx").write_bytes(b"joiner")
+        wav_path = make_test_wav(RECORDINGS_DIR / "asr_test_sherpa_short_retry.wav")
+        provider = SherpaOnnxAsrProvider(model_dir=model_dir, project_root=PROJECT_ROOT)
+        MockOnlineSherpaRecognizer.result_queue = ["", "red"]
+
+        with patch.dict(sys.modules, {"sherpa_onnx": make_mock_sherpa_module()}):
+            provider.load()
+            transcript = provider.transcribe_wav(wav_path)
+
+        self.assertEqual(transcript.text, "red")
+        self.assertTrue(transcript.details["short_clip_retry_used"])
+        self.assertEqual(len(MockOnlineSherpaRecognizer.instances), 2)
 
 
 if __name__ == "__main__":

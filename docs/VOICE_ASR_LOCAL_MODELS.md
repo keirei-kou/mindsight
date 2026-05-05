@@ -21,8 +21,8 @@ VITE_LOCAL_VAD_HEALTH_URL=http://127.0.0.1:8765/health
 Set Python sidecar ASR env values in the shell that runs `uvicorn` when needed:
 
 ```powershell
-$env:LOCAL_SPEECH_VOSK_MODEL_PATH="public\models\vosk"
-$env:LOCAL_SPEECH_SHERPA_MODEL_DIR="public\models\sherpa"
+$env:LOCAL_SPEECH_VOSK_MODEL_PATH="local_speech_engine\models\vosk\vosk-model-small-en-us-0.15"
+$env:LOCAL_SPEECH_SHERPA_MODEL_DIR="local_speech_engine\models\sherpa\sherpa-onnx-streaming-zipformer-en-20M-2023-02-17"
 $env:LOCAL_SPEECH_ASR_PROVIDER_DEFAULT="vosk"
 $env:LOCAL_SPEECH_ENABLE_VOSK="true"
 $env:LOCAL_SPEECH_ENABLE_SHERPA="true"
@@ -86,7 +86,7 @@ The Python sidecar uses the `vosk` Python package to transcribe saved WAV segmen
 Default sidecar model path:
 
 ```text
-public/models/vosk
+local_speech_engine/models/vosk/vosk-model-small-en-us-0.15
 ```
 
 Env override:
@@ -162,12 +162,18 @@ That command archives the contents of `public/models/vosk/` into `public/models/
 
 ## Python Sidecar Sherpa ONNX
 
-The Python sidecar includes a Sherpa ONNX provider scaffold only. It reports package/model-directory status and returns structured setup errors, but it does not emit fake transcripts.
+The Python sidecar includes a functional Sherpa ONNX provider for extracted transducer model folders. It reports package/model-directory status, loads compatible Sherpa ONNX models, and transcribes saved WAV segments without emitting fake transcripts.
 
-Env path:
+Default sidecar model path:
+
+```text
+local_speech_engine/models/sherpa/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17
+```
+
+Env override:
 
 ```powershell
-$env:LOCAL_SPEECH_SHERPA_MODEL_DIR="public\models\sherpa"
+$env:LOCAL_SPEECH_SHERPA_MODEL_DIR="local_speech_engine\models\sherpa\sherpa-onnx-streaming-zipformer-en-20M-2023-02-17"
 ```
 
 Install `sherpa-onnx` only after choosing a specific model layout:
@@ -176,7 +182,14 @@ Install `sherpa-onnx` only after choosing a specific model layout:
 local_speech_engine\.venv\Scripts\python -m pip install sherpa-onnx
 ```
 
-The provider needs a concrete model family and file layout before transcription can be implemented safely.
+For the current streaming Zipformer model, the extracted model directory should contain:
+
+- `tokens.txt`
+- `encoder-epoch-99-avg-1.int8.onnx` or `encoder-epoch-99-avg-1.onnx`
+- `decoder-epoch-99-avg-1.onnx`
+- `joiner-epoch-99-avg-1.int8.onnx` or `joiner-epoch-99-avg-1.onnx`
+
+The sidecar uses the streaming/online recognizer for model folders whose name contains `streaming`. It prepends a small leading silence pad and appends trailing silence for finalized short WAV segments to reduce streaming warmup and end-of-utterance issues.
 
 ## Saved-WAV Corpus
 
@@ -280,7 +293,7 @@ Browser Speech is live-only for benchmarking. It owns microphone capture, endpoi
 Future providers can use the same corpus:
 
 - Vosk: functional when `LOCAL_SPEECH_VOSK_MODEL_PATH` points to an extracted model folder.
-- Sherpa ONNX: scaffolded until a specific model layout is selected.
+- Sherpa ONNX: functional when `LOCAL_SPEECH_SHERPA_MODEL_DIR` points to a compatible extracted transducer model folder.
 - Whisper: can be added later as another provider consuming the same WAV files.
 
 ## Browser Sherpa ONNX Local
@@ -343,7 +356,7 @@ Target test commands:
 - Python Vosk `.tar.gz` error: set `LOCAL_SPEECH_VOSK_MODEL_PATH` to an extracted model folder, not `model.tar.gz`.
 - Python Vosk missing files: confirm the folder contains `am/final.mdl`, `conf/model.conf`, `graph/HCLr.fst`, and `graph/Gr.fst`.
 - Wrong Sherpa asset path: confirm `public/models/sherpa-onnx/` exists or set `VITE_SHERPA_ONNX_ASSET_BASE_URL`.
-- Python Sherpa unavailable: expected until a model layout is selected and the scaffold is wired to that layout.
+- Python Sherpa unavailable: confirm `sherpa-onnx` is installed and `LOCAL_SPEECH_SHERPA_MODEL_DIR` points to a compatible extracted transducer model folder.
 - Mic/VAD works but ASR fails: check `asr_model_error` or `asr_transcript_error` in the Local VAD panel; VAD remains usable even when ASR providers fail.
 - Windows path issues: quote paths with spaces and prefer absolute paths for `LOCAL_SPEECH_VOSK_MODEL_PATH` if relative paths behave unexpectedly.
 - WASM MIME/path issues: serve through Vite or another HTTP server; do not open `index.html` directly from the filesystem.
