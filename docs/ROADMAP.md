@@ -260,6 +260,10 @@ Open decisions:
 - Whether Sherpa full ASR is worth its model/runtime footprint, or whether a Sherpa keyword-spotting path is a better long-term open-source local option.
 - How, if at all, the diagnostic provider selector should later integrate into active session UX.
 
+### Voice Engine Lab Batch Roadmap
+
+Future Voice Engine Lab UI upgrades are tracked in `local_speech_engine/docs/voice_engine_lab_ui_roadmap.md`. The intended order is corpus collection, Load All Providers, script-stable batch arbitration, then a Corpus Benchmark UI panel. TrainingRoom integration remains out of scope for this lab roadmap.
+
 ### Shared Voice Engine
 
 Architecture documentation for Phase 1 (layered engine, event direction, Tauri-first desktop, backpressure, Silero-first VAD, Next.js boundary) is complete in `docs/SHARED_VOICE_ENGINE.md`; see `docs/ARCHIVED_TASKS.md` (2026-05-03 Shared Voice Engine Architecture Documentation). Runtime implementation, sidecar packaging, and PsiLabs adapter work remain future phases.

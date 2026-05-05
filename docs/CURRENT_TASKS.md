@@ -175,6 +175,8 @@ What was implemented:
 
 What remains:
 
+Future lab UI roadmap: see `local_speech_engine/docs/voice_engine_lab_ui_roadmap.md` for Load All Providers and Corpus Benchmark/Batch Arbitration planning. Do not start the batch UI until corpus collection and `benchmark_arbitration.py` output behavior are stable.
+
 ### Phase 5 - Arbitration policy UI control
 
 Status: not implemented. The sidecar already accepts `policy` over the WebSocket (`local_speech_engine/server.py` line 738), but the lab UI does not surface it.
