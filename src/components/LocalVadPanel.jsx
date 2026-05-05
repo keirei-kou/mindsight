@@ -119,6 +119,77 @@ function getResultMeta(expected, normalizedTranscript, status) {
     : { label: "fail", color: LAB.error };
 }
 
+function getSaveEligibility(segment) {
+  const empty = {
+    allowed: false,
+    normalizedText: "",
+    providerTexts: {},
+  };
+
+  if (!segment) {
+    return empty;
+  }
+
+  const providerTexts = {};
+  const addProviderText = (provider, rawValue, normalizedValue, commandValue) => {
+    const name = provider || "unknown";
+    const rawText = String(rawValue || "").trim();
+    const normalizedText = normalizeAsrText(normalizedValue || rawText);
+    const commandText = normalizeAsrText(commandValue);
+    const usableText = commandText || normalizedText;
+
+    providerTexts[name] = {
+      raw: rawText,
+      normalized: normalizedText,
+      command: commandText,
+      usable: usableText,
+    };
+
+    return usableText;
+  };
+
+  const usableTexts = [];
+  const asrEntries = Object.values(segment.asr || {});
+  asrEntries.forEach((entry) => {
+    const usableText = addProviderText(entry?.provider, entry?.text, entry?.normalized_text, entry?.command);
+    if (usableText) {
+      usableTexts.push(usableText);
+    }
+  });
+
+  const arbitration = segment.arbitration || {};
+  const result = arbitration.result || {};
+  const providerRuns = [
+    ...(Array.isArray(arbitration.providerRuns) ? arbitration.providerRuns : []),
+    ...(Array.isArray(result.provider_runs) ? result.provider_runs : []),
+  ];
+  providerRuns.forEach((run) => {
+    const usableText = addProviderText(run?.provider, run?.raw_transcript || run?.text, run?.normalized_text, run?.command);
+    if (usableText) {
+      usableTexts.push(usableText);
+    }
+  });
+
+  const candidates = Array.isArray(result.candidates) ? result.candidates : [];
+  candidates.forEach((candidate) => {
+    const usableText = addProviderText(candidate?.provider, candidate?.raw_transcript || candidate?.text, candidate?.normalized_text, candidate?.command);
+    if (usableText) {
+      usableTexts.push(usableText);
+    }
+  });
+
+  const finalText = normalizeAsrText(result.final_command || result.final_text);
+  if (finalText) {
+    usableTexts.unshift(finalText);
+  }
+
+  return {
+    allowed: usableTexts.length > 0,
+    normalizedText: usableTexts[0] || "",
+    providerTexts,
+  };
+}
+
 function getConfidenceColor(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return LAB.subtext;
@@ -684,7 +755,18 @@ export function LocalVadPanel() {
       return;
     }
 
-    const expected = String(segment.expected || "").trim();
+    const saveEligibility = getSaveEligibility(segment);
+    const expected = String(segment.expected || saveEligibility.normalizedText || "").trim();
+    if (import.meta.env.DEV) {
+      console.debug("voice-engine-corpus-save", {
+        filename: segment.filename,
+        vosk_text: saveEligibility.providerTexts.vosk?.raw || "",
+        sherpa_text: saveEligibility.providerTexts.sherpa?.raw || "",
+        normalized_text: saveEligibility.normalizedText,
+        save_allowed: saveEligibility.allowed,
+      });
+    }
+
     if (!expected) {
       setCorpusStatus("error");
       setCorpusMessage("Enter expected text before saving a labeled sample.");
@@ -695,10 +777,21 @@ export function LocalVadPanel() {
       return;
     }
 
+    if (!saveEligibility.allowed) {
+      setCorpusStatus("error");
+      setCorpusMessage("Run ASR first. At least one provider needs a transcript before saving to the corpus.");
+      setSegmentLabelState(segment.filename, {
+        corpusStatus: "needs_review",
+        corpusError: "At least one provider transcript is required before saving.",
+      });
+      return;
+    }
+
     try {
       setCorpusStatus("saving");
       setCorpusMessage("");
       setSegmentLabelState(segment.filename, {
+        expected,
         corpusStatus: "saving",
         corpusError: "",
       });
@@ -824,7 +917,9 @@ export function LocalVadPanel() {
     const text = providerTranscript?.text || "";
     const rawTranscript = status === "error" ? providerTranscript?.error || "Transcript error" : text;
     const normalizedTranscript = normalizeAsrText(text);
-    const expected = normalizeAsrText(segment.expected);
+    const saveEligibility = getSaveEligibility(segment);
+    const expectedRaw = segment.expected || saveEligibility.normalizedText || "";
+    const expected = normalizeAsrText(expectedRaw);
     const result = getResultMeta(expected, normalizedTranscript, status);
 
     return {
@@ -836,7 +931,7 @@ export function LocalVadPanel() {
       rawTranscript: status === "transcribing" ? "Transcribing..." : rawTranscript || "No transcript yet",
       normalizedTranscript,
       confidence,
-      expectedRaw: segment.expected || "",
+      expectedRaw,
       expected,
       sampleType: segment.sampleType || "command",
       category: segment.category || "other",
@@ -847,6 +942,7 @@ export function LocalVadPanel() {
       result,
       status,
       error: providerTranscript?.error || "",
+      hasSaveableProviderText: saveEligibility.allowed,
       selected: selectedSegmentFilename === segment.filename,
       segment,
     };
@@ -1285,7 +1381,15 @@ export function LocalVadPanel() {
                       Connect the engine, start VAD, then speak a short command like "red."
                     </td>
                   </tr>
-                ) : transcriptRows.map((row) => (
+                ) : transcriptRows.map((row) => {
+                  const saveDisabled = !isConnected || !row.expectedRaw || !row.hasSaveableProviderText || row.corpusStatus === "saving" || row.corpusStatus === "saved" || row.corpusStatus === "deleting";
+                  const saveTitle = !row.expectedRaw
+                    ? "Enter expected text before saving."
+                    : !row.hasSaveableProviderText
+                      ? "Run ASR first. At least one provider needs a transcript before saving."
+                      : "Save segment to corpus.";
+
+                  return (
                   <tr
                     key={row.key}
                     onClick={() => setSelectedDebugFilename(row.filename)}
@@ -1310,12 +1414,13 @@ export function LocalVadPanel() {
                       <div style={{ display: "flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}>
                         <button
                           type="button"
+                          title={saveTitle}
                           onClick={(event) => {
                             event.stopPropagation();
                             saveSegmentToCorpus(row.segment);
                           }}
-                          disabled={!isConnected || !row.expectedRaw || row.corpusStatus === "saving" || row.corpusStatus === "saved" || row.corpusStatus === "deleting"}
-                          style={{ minHeight: "28px", background: LAB.primary, color: "#ffffff", border: `1px solid ${LAB.primary}`, borderRadius: "5px", padding: "4px 7px", font: "inherit", fontSize: "0.7rem", fontWeight: 750, cursor: !isConnected || !row.expectedRaw || row.corpusStatus === "saving" || row.corpusStatus === "saved" || row.corpusStatus === "deleting" ? "not-allowed" : "pointer", opacity: !isConnected || !row.expectedRaw || row.corpusStatus === "saving" || row.corpusStatus === "saved" || row.corpusStatus === "deleting" ? 0.62 : 1 }}
+                          disabled={saveDisabled}
+                          style={{ minHeight: "28px", background: LAB.primary, color: "#ffffff", border: `1px solid ${LAB.primary}`, borderRadius: "5px", padding: "4px 7px", font: "inherit", fontSize: "0.7rem", fontWeight: 750, cursor: saveDisabled ? "not-allowed" : "pointer", opacity: saveDisabled ? 0.62 : 1 }}
                         >
                           Save
                         </button>
@@ -1344,7 +1449,8 @@ export function LocalVadPanel() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
