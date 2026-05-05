@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 import struct
 import wave
 from collections import deque
@@ -255,10 +256,55 @@ def build_segment_filename(segment: SpeechSegment) -> str:
     return f"vad_segment_{stamp}_{millis:03d}Z_{segment.index:04d}.wav"
 
 
-def save_segment_wav(segment: SpeechSegment, recordings_dir: Path) -> SavedSegment:
-    recordings_dir.mkdir(parents=True, exist_ok=True)
-    filename = build_segment_filename(segment)
+_RECORDING_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
+
+
+def slugify_recording_filename_part(value: str | None) -> str:
+    normalized = str(value or "").strip().lower().replace("|", "-")
+    normalized = re.sub(r"\s+", "_", normalized)
+    normalized = _RECORDING_SLUG_RE.sub("", normalized)
+    normalized = re.sub(r"_+", "_", normalized)
+    normalized = re.sub(r"-+", "-", normalized)
+    return normalized.strip("_-")
+
+
+def build_contextual_segment_filename(segment: SpeechSegment, *, expected: str | None, notes: str | None) -> str:
+    expected_slug = slugify_recording_filename_part(expected)
+    if not expected_slug:
+        return build_segment_filename(segment)
+
+    notes_slug = slugify_recording_filename_part(notes)
+    stamp = segment.started_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    stem = f"{expected_slug}__{notes_slug}" if notes_slug else expected_slug
+    return f"{stem}__{stamp}.wav"
+
+
+def _unique_recording_path(recordings_dir: Path, filename: str) -> Path:
     path = recordings_dir / filename
+    if not path.exists():
+        return path
+
+    stem = path.stem
+    suffix = path.suffix
+    index = 2
+    while True:
+        candidate = recordings_dir / f"{stem}__{index:03d}{suffix}"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def save_segment_wav(
+    segment: SpeechSegment,
+    recordings_dir: Path,
+    *,
+    expected: str | None = None,
+    notes: str | None = None,
+) -> SavedSegment:
+    recordings_dir.mkdir(parents=True, exist_ok=True)
+    filename = build_contextual_segment_filename(segment, expected=expected, notes=notes)
+    path = _unique_recording_path(recordings_dir, filename)
+    filename = path.name
 
     with wave.open(str(path), "wb") as wav_file:
         wav_file.setnchannels(1)

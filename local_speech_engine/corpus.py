@@ -18,6 +18,7 @@ DEFAULT_LABELS_PATH = DEFAULT_CORPUS_DIR / "labels.json"
 VALID_SAMPLE_TYPES = {"command", "voice_note"}
 COMMAND_CATEGORIES = {"colors", "shapes", "numbers", "other"}
 _SESSION_ID_RE = re.compile(r"[^a-z0-9_-]+")
+_FILENAME_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 
 
 @dataclass
@@ -82,6 +83,34 @@ def slugify_session_id(value: str | None) -> str:
     normalized = str(value or "").strip().lower()
     normalized = _SESSION_ID_RE.sub("_", normalized).strip("_")
     return normalized or "session"
+
+
+def slugify_corpus_filename_part(value: str | None) -> str:
+    normalized = str(value or "").strip().lower().replace("|", "-")
+    normalized = re.sub(r"\s+", "_", normalized)
+    normalized = _FILENAME_SLUG_RE.sub("", normalized)
+    normalized = re.sub(r"_+", "_", normalized)
+    normalized = re.sub(r"-+", "-", normalized)
+    return normalized.strip("_-")
+
+
+def corpus_destination_path(destination_dir: Path, expected: str, notes: str | None, source_filename: str | None = None) -> Path:
+    source_name = Path(str(source_filename or "")).name
+    if source_name and not source_name.startswith("vad_segment_"):
+        candidate = destination_dir / source_name
+        if not candidate.exists():
+            return candidate
+
+    expected_slug = slugify_corpus_filename_part(expected) or "sample"
+    notes_slug = slugify_corpus_filename_part(notes)
+    stem_prefix = f"{expected_slug}__{notes_slug}" if notes_slug else expected_slug
+
+    index = 1
+    while True:
+        candidate = destination_dir / f"{stem_prefix}__{index:03d}.wav"
+        if not candidate.exists():
+            return candidate
+        index += 1
 
 
 def _session_labels_path(corpus_dir: Path, session_id: str) -> Path:
@@ -240,7 +269,7 @@ def save_segment_to_corpus(
     normalized_category = normalize_category(normalized_type, category)
     destination_dir = corpus_dir / sample_folder(normalized_type, normalized_category)
     destination_dir.mkdir(parents=True, exist_ok=True)
-    destination_path = destination_dir / source_path.name
+    destination_path = corpus_destination_path(destination_dir, expected_text, notes, source_path.name)
     shutil.copy2(source_path, destination_path)
 
     resolved_labels_path = labels_path or corpus_dir / "labels.json"

@@ -80,11 +80,26 @@ export function createLocalVadClient({
         socket = null;
       }
     },
-    startListening() {
-      sendCommand("start_vad");
+    startListening({ expected, type, category, notes, sessionId } = {}) {
+      sendCommand("start_vad", {
+        expected,
+        type,
+        category,
+        notes,
+        session_id: sessionId,
+      });
     },
     stopListening() {
       sendCommand("stop_vad");
+    },
+    updateRecordingContext({ expected, type, category, notes, sessionId } = {}) {
+      sendCommand("update_recording_context", {
+        expected,
+        type,
+        category,
+        notes,
+        session_id: sessionId,
+      });
     },
     startVoiceNote({ sessionId, trialIndex } = {}) {
       sendCommand("start_voice_note", { session_id: sessionId, trial_index: trialIndex });

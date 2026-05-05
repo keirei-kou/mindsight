@@ -8,6 +8,7 @@ from pathlib import Path
 
 from local_speech_engine.vad_engine import (
     EnergyVadDetector,
+    SpeechSegment,
     VadConfig,
     VadSegmenter,
     VoiceNoteFragment,
@@ -83,6 +84,49 @@ class VadEngineTests(unittest.TestCase):
                 self.assertEqual(wav_file.getsampwidth(), 2)
                 self.assertEqual(wav_file.getframerate(), config.sample_rate)
                 self.assertGreater(wav_file.getnframes(), 0)
+        finally:
+            saved.path.unlink(missing_ok=True)
+
+    def test_save_segment_uses_label_context_for_new_recording_filename(self) -> None:
+        config = VadConfig(sample_rate=16000, frame_ms=20)
+        started_at = datetime(2026, 5, 5, 19, 1, 37, 123000, tzinfo=timezone.utc)
+        segment = SpeechSegment(
+            index=1,
+            frames=(make_frame(1200, config), make_frame(1200, config)),
+            started_at=started_at,
+            ended_at=started_at,
+            sample_rate=config.sample_rate,
+            frame_ms=config.frame_ms,
+            prebuffer_ms=config.prebuffer_ms,
+            hangover_ms=config.hangover_ms,
+        )
+
+        recordings_dir = Path(__file__).resolve().parents[1] / "recordings"
+        saved = save_segment_wav(
+            segment,
+            recordings_dir,
+            expected="Red!",
+            notes="single_word|clean room!*",
+        )
+
+        try:
+            self.assertEqual(saved.filename, "red__single_word-clean_room__20260505T190137.wav")
+            self.assertTrue(saved.path.exists())
+        finally:
+            saved.path.unlink(missing_ok=True)
+
+    def test_save_segment_falls_back_to_vad_filename_without_expected_label(self) -> None:
+        config = VadConfig(sample_rate=16000, frame_ms=20)
+        decisions = [True, False]
+        segmenter = VadSegmenter(config, SequenceDetector(decisions))
+        segmenter.process_frame(make_frame(2000, config))
+        segment = segmenter.flush()["segment"]  # type: ignore[index]
+
+        recordings_dir = Path(__file__).resolve().parents[1] / "recordings"
+        saved = save_segment_wav(segment, recordings_dir, expected="", notes="single_word|clean")
+
+        try:
+            self.assertTrue(saved.filename.startswith("vad_segment_"))
         finally:
             saved.path.unlink(missing_ok=True)
 

@@ -58,9 +58,11 @@ class CorpusTests(unittest.TestCase):
         self.assertEqual(sample["expected"], "red")
         self.assertEqual(sample["type"], "command")
         self.assertEqual(sample["category"], "colors")
-        self.assertEqual(load_labels(labels_path)[0]["file"], "commands/colors/" + source.name)
+        self.assertEqual(sample["notes"], "first pass")
+        self.assertEqual(load_labels(labels_path)[0]["file"], "commands/colors/red__first_pass__001.wav")
+        self.assertTrue(source.exists())
 
-    def test_save_segment_to_corpus_updates_existing_label_for_same_file(self) -> None:
+    def test_save_segment_to_corpus_creates_unique_human_readable_files(self) -> None:
         recordings_dir, corpus_dir, labels_path = reset_test_root()
         source = make_test_wav(recordings_dir / "vad_segment_20260501T000000_000Z_0002.wav")
 
@@ -76,20 +78,58 @@ class CorpusTests(unittest.TestCase):
         )
         second = save_segment_to_corpus(
             source_filename=source.name,
-            expected="blue",
+            expected="red",
             sample_type="command",
             category="colors",
-            notes="corrected",
+            notes="first",
             recordings_dir=recordings_dir,
             corpus_dir=corpus_dir,
             labels_path=labels_path,
         )
 
         labels = load_labels(labels_path)
-        self.assertEqual(len(labels), 1)
-        self.assertEqual(first["id"], second["id"])
-        self.assertEqual(labels[0]["expected"], "blue")
-        self.assertEqual(labels[0]["notes"], "corrected")
+        self.assertEqual(len(labels), 2)
+        self.assertEqual(first["file"], "commands/colors/red__first__001.wav")
+        self.assertEqual(second["file"], "commands/colors/red__first__002.wav")
+        self.assertTrue((corpus_dir / first["file"]).exists())
+        self.assertTrue((corpus_dir / second["file"]).exists())
+
+    def test_save_segment_to_corpus_sanitizes_notes_for_filename_but_preserves_notes(self) -> None:
+        recordings_dir, corpus_dir, labels_path = reset_test_root()
+        source = make_test_wav(recordings_dir / "vad_segment_20260501T000000_000Z_0007.wav")
+
+        sample = save_segment_to_corpus(
+            source_filename=source.name,
+            expected="Red!",
+            sample_type="command",
+            category="colors",
+            notes="single_word|quiet room!*",
+            recordings_dir=recordings_dir,
+            corpus_dir=corpus_dir,
+            labels_path=labels_path,
+        )
+
+        self.assertEqual(sample["file"], "commands/colors/red__single_word-quiet_room__001.wav")
+        self.assertEqual(sample["expected"], "Red!")
+        self.assertEqual(sample["notes"], "single_word|quiet room!*")
+
+    def test_save_segment_to_corpus_preserves_human_readable_recording_filename(self) -> None:
+        recordings_dir, corpus_dir, labels_path = reset_test_root()
+        source = make_test_wav(recordings_dir / "red__single_word-clean__20260505T190137.wav")
+
+        sample = save_segment_to_corpus(
+            source_filename=source.name,
+            expected="red",
+            sample_type="command",
+            category="colors",
+            notes="single_word|clean",
+            recordings_dir=recordings_dir,
+            corpus_dir=corpus_dir,
+            labels_path=labels_path,
+        )
+
+        self.assertEqual(sample["file"], "commands/colors/red__single_word-clean__20260505T190137.wav")
+        self.assertTrue((corpus_dir / sample["file"]).exists())
 
     def test_delete_recording_segment_removes_only_inside_recordings(self) -> None:
         recordings_dir, _, _ = reset_test_root()
@@ -133,7 +173,7 @@ class CorpusTests(unittest.TestCase):
         payload = json.loads(session_labels_path.read_text(encoding="utf-8"))
         self.assertEqual(payload["session_id"], "Colors Red 2026-05-03")
         self.assertEqual(payload["mode"], "command")
-        self.assertEqual(payload["files"][0]["filename"], "commands/colors/" + source.name)
+        self.assertEqual(payload["files"][0]["filename"], "commands/colors/red__session_sample__001.wav")
         self.assertEqual(payload["files"][0]["expected"], "red")
         self.assertEqual(sample["expected"], "red")
 
@@ -165,9 +205,11 @@ class CorpusTests(unittest.TestCase):
         )
 
         payload = json.loads((corpus_dir / "labels.colors_red.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(payload["files"]), 1)
+        self.assertEqual(len(payload["files"]), 2)
+        self.assertEqual(payload["files"][0]["filename"], "commands/colors/blue__corrected__001.wav")
         self.assertEqual(payload["files"][0]["expected"], "blue")
         self.assertEqual(payload["files"][0]["notes"], "corrected")
+        self.assertEqual(payload["files"][1]["filename"], "commands/colors/red__first__001.wav")
 
     def test_save_segment_to_corpus_without_session_id_keeps_legacy_list_writer(self) -> None:
         recordings_dir, corpus_dir, labels_path = reset_test_root()
@@ -185,7 +227,7 @@ class CorpusTests(unittest.TestCase):
 
         labels = load_labels(labels_path)
         self.assertEqual(len(labels), 1)
-        self.assertEqual(labels[0]["file"], "commands/colors/" + source.name)
+        self.assertEqual(labels[0]["file"], "commands/colors/red__001.wav")
         self.assertFalse((corpus_dir / "labels.session.json").exists())
 
 

@@ -3,6 +3,8 @@ import { createLocalVadClient, fetchLocalVadHealth, getLocalVadUrls } from "../l
 
 const MAX_EVENTS = 80;
 const MAX_SEGMENTS = 20;
+/** Set true to prompt before deleting a recording from local_speech_engine/recordings. */
+const ENABLE_DELETE_CONFIRM = false;
 const LAB = {
   background: "#F7F6F2",
   surface: "#FFFFFF",
@@ -99,6 +101,16 @@ function normalizeAsrText(value) {
     .trim();
 
   return COMMAND_ALIASES[normalized] || normalized;
+}
+
+function getRecordingContextPayload(form) {
+  return {
+    expected: form.expected.trim(),
+    type: form.type,
+    category: form.category,
+    notes: form.notes.trim(),
+    sessionId: form.sessionId.trim(),
+  };
 }
 
 function getResultMeta(expected, normalizedTranscript, status) {
@@ -603,6 +615,7 @@ export function LocalVadPanel() {
         setConnectionStatus("connected");
         setErrorText("");
         client.listAsrProviders();
+        client.updateRecordingContext(getRecordingContextPayload(corpusFormRef.current));
       },
       onClose: (event, { wasRequested }) => {
         setConnectionStatus("disconnected");
@@ -647,7 +660,7 @@ export function LocalVadPanel() {
     try {
       setErrorText("");
       setEngineStatus("starting");
-      clientRef.current?.startListening();
+      clientRef.current?.startListening(getRecordingContextPayload(corpusForm));
     } catch (error) {
       setEngineStatus("error");
       setErrorText(error instanceof Error ? error.message : "Unable to start local VAD.");
@@ -818,11 +831,16 @@ export function LocalVadPanel() {
       return;
     }
 
-    if (!window.confirm(`Delete ${segment.filename}? This removes the WAV from local_speech_engine/recordings.`)) {
+    // TODO: Replace with toast + undo pattern for safer high-frequency corpus workflows.
+    if (
+      ENABLE_DELETE_CONFIRM
+      && !window.confirm(`Delete ${segment.filename}? This removes the WAV from local_speech_engine/recordings.`)
+    ) {
       return;
     }
 
     try {
+      console.log("Deleted segment:", segment.filename);
       setCorpusStatus("saving");
       setCorpusMessage(`Deleting ${segment.filename}...`);
       setSegmentLabelState(segment.filename, {
@@ -897,12 +915,57 @@ export function LocalVadPanel() {
   const isListening = engineStatus === "listening" || engineStatus === "starting";
   const isStopping = engineStatus === "stopping";
   const isVadToggleDisabled = !isConnected || engineStatus === "starting" || isStopping;
+
+  const loadAllAsrProviders = useCallback(() => {
+    if (!clientRef.current || !isConnected) {
+      return;
+    }
+
+    const list = asrProvidersRef.current.length
+      ? asrProvidersRef.current
+      : [{ name: "vosk" }, { name: "sherpa" }];
+    const toLoad = list.filter((p) => p?.name && p.available !== false && !p.loaded);
+
+    if (!toLoad.length) {
+      setAsrErrorText("");
+      setAsrStatus("ready");
+      return;
+    }
+
+    try {
+      setAsrStatus("loading");
+      setAsrErrorText("");
+      toLoad.forEach((p) => {
+        try {
+          clientRef.current.loadAsrProvider(p.name);
+        } catch (err) {
+          console.warn("Load ASR provider failed:", p.name, err);
+        }
+      });
+    } catch (error) {
+      setAsrStatus("error");
+      setAsrErrorText(error instanceof Error ? error.message : "Unable to load ASR providers.");
+    }
+  }, [isConnected]);
+
+  useEffect(() => {
+    if (!isConnected) {
+      return;
+    }
+
+    clientRef.current?.updateRecordingContext(getRecordingContextPayload(corpusForm));
+  }, [corpusForm, isConnected]);
+
   const latestSegment = segments[0] || null;
   const selectedSegment = segments.find((segment) => segment.filename === selectedDebugFilename) || latestSegment;
   const selectedSegmentFilename = selectedSegment?.filename || "";
   const selectedProviderStatus = asrProviders.find((provider) => provider.name === selectedAsrProvider);
   const isSelectedProviderLoaded = Boolean(selectedProviderStatus?.loaded);
   const arbitrationProviderOptions = asrProviders.length ? asrProviders : [{ name: "vosk" }, { name: "sherpa" }];
+  const asrProvidersNeedingLoad = useMemo(() => {
+    const list = asrProviders.length ? asrProviders : [{ name: "vosk" }, { name: "sherpa" }];
+    return list.filter((p) => p?.name && p.available !== false && !p.loaded);
+  }, [asrProviders]);
   const debugSegmentFilename = segments.some((segment) => segment.filename === selectedDebugFilename)
     ? selectedDebugFilename
     : latestSegment?.filename || "";
@@ -1187,6 +1250,15 @@ export function LocalVadPanel() {
             style={{ minHeight: "36px", background: LAB.primary, color: "#ffffff", border: `1px solid ${LAB.primary}`, borderRadius: "6px", padding: "8px 11px", font: "inherit", fontWeight: 750, cursor: !isConnected || asrStatus === "loading" ? "not-allowed" : "pointer", opacity: !isConnected || asrStatus === "loading" ? 0.7 : 1 }}
           >
             Load Provider
+          </button>
+          <button
+            type="button"
+            onClick={() => loadAllAsrProviders()}
+            disabled={!isConnected || asrStatus === "loading" || asrProvidersNeedingLoad.length === 0}
+            title={asrProvidersNeedingLoad.length === 0 ? "All available providers are already loaded" : `Load: ${asrProvidersNeedingLoad.map((p) => p.name).join(", ")}`}
+            style={{ minHeight: "36px", background: LAB.primarySoft, color: LAB.primary, border: `1px solid ${LAB.primary}`, borderRadius: "6px", padding: "8px 11px", font: "inherit", fontWeight: 750, cursor: !isConnected || asrStatus === "loading" || asrProvidersNeedingLoad.length === 0 ? "not-allowed" : "pointer", opacity: !isConnected || asrStatus === "loading" || asrProvidersNeedingLoad.length === 0 ? 0.7 : 1 }}
+          >
+            Load All Providers
           </button>
           <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: LAB.text, fontSize: "0.8rem", lineHeight: 1.4, minHeight: "36px" }}>
             <input
