@@ -1,0 +1,49 @@
+{
+  "session_id": "numbers_six_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/numbers/six/six__number-clean__20260507T005954.wav",
+      "expected": "six",
+      "notes": "number|clean",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/six/six__number-cutoff_end__20260507T010048.wav",
+      "expected": "six",
+      "notes": "number|cutoff_end",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/six/six__number-cutoff_start__20260507T010039.wav",
+      "expected": "six",
+      "notes": "number|cutoff_start",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/six/six__number-false_positive__20260507T010057.wav",
+      "expected": "six",
+      "notes": "number|false_positive",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/six/six__number-fast__20260507T010007.wav",
+      "expected": "six",
+      "notes": "number|fast",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/six/six__number-quiet__20260507T010019.wav",
+      "expected": "six",
+      "notes": "number|quiet",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/six/six__number-sloppy__20260507T010027.wav",
+      "expected": "six",
+      "notes": "number|sloppy",
+      "category": "numbers"
+    }
+  ]
+}

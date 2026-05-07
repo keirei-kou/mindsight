@@ -1,0 +1,49 @@
+{
+  "session_id": "numbers_one_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/numbers/one/one__number-clean__20260506T161833.wav",
+      "expected": "one",
+      "notes": "number|clean",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/one/one__number-cutoff_end__20260506T162014.wav",
+      "expected": "one",
+      "notes": "number|cutoff_end",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/one/one__number-cutoff_start__20260506T162001.wav",
+      "expected": "one",
+      "notes": "number|cutoff_start",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/one/one__number-false_positive__20260506T162102.wav",
+      "expected": "one",
+      "notes": "number|false_positive",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/one/one__number-fast__20260506T161852.wav",
+      "expected": "one",
+      "notes": "number|fast",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/one/one__number-quiet__20260506T161917.wav",
+      "expected": "one",
+      "notes": "number|quiet",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/one/one__number-sloppy__20260506T161938.wav",
+      "expected": "one",
+      "notes": "number|sloppy",
+      "category": "numbers"
+    }
+  ]
+}

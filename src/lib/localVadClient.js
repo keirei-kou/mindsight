@@ -80,11 +80,26 @@ export function createLocalVadClient({
         socket = null;
       }
     },
-    startListening() {
-      sendCommand("start_vad");
+    startListening({ expected, type, category, notes, sessionId } = {}) {
+      sendCommand("start_vad", {
+        expected,
+        type,
+        category,
+        notes,
+        session_id: sessionId,
+      });
     },
     stopListening() {
       sendCommand("stop_vad");
+    },
+    updateRecordingContext({ expected, type, category, notes, sessionId } = {}) {
+      sendCommand("update_recording_context", {
+        expected,
+        type,
+        category,
+        notes,
+        session_id: sessionId,
+      });
     },
     startVoiceNote({ sessionId, trialIndex } = {}) {
       sendCommand("start_voice_note", { session_id: sessionId, trial_index: trialIndex });
@@ -112,6 +127,15 @@ export function createLocalVadClient({
     },
     deleteRecordingSegment(filename) {
       sendCommand("delete_recording_segment", { filename });
+    },
+    deleteCorpusSample({ file, filename, path, labelFile, sessionId } = {}) {
+      sendCommand("delete_corpus_sample", {
+        file,
+        filename,
+        path,
+        label_file: labelFile,
+        session_id: sessionId,
+      });
     },
     saveSegmentToCorpus({ sourceFilename, expected, type, category, notes, sessionId } = {}) {
       sendCommand("save_segment_to_corpus", {

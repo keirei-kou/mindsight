@@ -1,0 +1,25 @@
+{
+  "session_id": "system_test_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/other/test/test__system-clean__20260507T024438.wav",
+      "expected": "test",
+      "notes": "system|clean",
+      "category": "other"
+    },
+    {
+      "filename": "commands/other/test/test__system-false_positive__20260507T024534.wav",
+      "expected": "test",
+      "notes": "system|false_positive",
+      "category": "other"
+    },
+    {
+      "filename": "commands/other/test/test__system-fast__20260507T024507.wav",
+      "expected": "test",
+      "notes": "system|fast",
+      "category": "other"
+    }
+  ]
+}

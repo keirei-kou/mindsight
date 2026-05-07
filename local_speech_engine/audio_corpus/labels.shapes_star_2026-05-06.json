@@ -1,0 +1,25 @@
+{
+  "session_id": "shapes_star_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/shapes/star/star__shape-clean__20260507T012406.wav",
+      "expected": "star",
+      "notes": "shape|clean",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/star/star__shape-false_positive__20260507T012427.wav",
+      "expected": "star",
+      "notes": "shape|false_positive",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/star/star__shape-fast__20260507T012416.wav",
+      "expected": "star",
+      "notes": "shape|fast",
+      "category": "shapes"
+    }
+  ]
+}

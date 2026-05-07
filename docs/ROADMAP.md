@@ -264,6 +264,50 @@ Open decisions:
 
 Future Voice Engine Lab UI upgrades are tracked in `local_speech_engine/docs/voice_engine_lab_ui_roadmap.md`. The intended order is corpus collection, Load All Providers, script-stable batch arbitration, then a Corpus Benchmark UI panel. TrainingRoom integration remains out of scope for this lab roadmap.
 
+### Speech Calibration And Personal Command Lexicon
+
+PsiLabs should add a local-first speech normalization layer so users can teach the app how their own speech maps to intended commands, participant names, and session actions. This belongs after the current ASR provider, arbitration, and corpus benchmarking foundations are stable. It is a roadmap item only; do not implement storage, UI, or command-routing changes until explicitly scoped.
+
+MVP principle:
+
+- Local calibration must work without login.
+- Auth remains optional and should unlock sync or migration features later, not basic speech calibration.
+- User-confirmed mappings are personal/local by default.
+- The system should avoid global auto-promotion of aliases or participant names.
+- Calibration should improve command interpretation without silently changing scored test behavior.
+
+Roadmap items:
+
+1. Personal local command lexicon: store user-reviewed transcript aliases that map phrases or ASR confusions to intended commands such as colors, shapes, numbers, navigation, and submission actions.
+2. Session participant-name aliases: allow per-session or per-profile aliases for participant names, including common ASR variants, without adding those aliases to a global namespace automatically.
+3. Calibration debug/chat popup for recent transcripts: provide a lightweight review surface that shows recent raw transcripts, normalized candidates, provider/arbitration context, and unresolved phrases.
+4. Transcript assignment flow: let the user classify a transcript as a command, participant, action, or `NO_COMMAND`, with explicit review before the mapping affects future interpretation.
+5. Guest mode local storage: persist speech profile data locally for users who are not logged in, using browser or desktop local storage appropriate to the current storage mode.
+6. Export/import speech profile JSON: support portable backup and transfer of personal lexicon entries, participant aliases, review decisions, timestamps, and profile metadata.
+7. Future account sync/private cloud storage: optional account-backed sync can store a private speech profile for cross-device use, but must not be required for calibration.
+8. Guest-to-account migration flow: let a guest claim or merge their local speech profile into an account later, with conflict review instead of overwriting silently.
+9. Future global candidate pool with safeguards: consider a reviewed, privacy-aware candidate pool only after local profiles are working; candidates should require review, frequency thresholds, and safeguards against rare, personal, or sensitive aliases.
+
+Suggested profile shape, subject to later design:
+
+```json
+{
+  "profileVersion": 1,
+  "scope": "local",
+  "commands": [],
+  "participantAliases": [],
+  "ignoredTranscripts": [],
+  "reviewedAt": "ISO timestamp"
+}
+```
+
+Non-goals for the MVP:
+
+- Requiring a user account.
+- Syncing speech profiles to cloud storage by default.
+- Automatically promoting personal aliases into global command vocabulary.
+- Treating unreviewed ASR guesses as durable command mappings.
+
 ### Shared Voice Engine
 
 Architecture documentation for Phase 1 (layered engine, event direction, Tauri-first desktop, backpressure, Silero-first VAD, Next.js boundary) is complete in `docs/SHARED_VOICE_ENGINE.md`; see `docs/ARCHIVED_TASKS.md` (2026-05-03 Shared Voice Engine Architecture Documentation). Runtime implementation, sidecar packaging, and PsiLabs adapter work remain future phases.

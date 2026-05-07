@@ -15,7 +15,14 @@ if __package__ in {None, ""}:
 from local_speech_engine.asr import AsrArbiter, AsrProviderError, AsrRegistry, LocalSpeechConfig
 from local_speech_engine.asr.normalization import COMMAND_PROFILE, normalize_asr_text, normalize_profile
 from local_speech_engine.asr.policies import HYBRID_DEFAULT_POLICY, available_policy_names, normalize_policy_name
-from local_speech_engine.corpus import DEFAULT_CORPUS_DIR, DEFAULT_LABELS_PATH
+from local_speech_engine.benchmark_metrics import benchmark_score_summary
+from local_speech_engine.corpus import (
+    DEFAULT_CORPUS_DIR,
+    DEFAULT_LABELS_PATH,
+    condition_group_for_notes,
+    load_corpus_samples,
+    note_tags,
+)
 
 
 ENGINE_ROOT = Path(__file__).resolve().parents[1]
@@ -24,10 +31,14 @@ RECORDINGS_DIR = ENGINE_ROOT / "recordings"
 DEFAULT_RESULTS_DIR = ENGINE_ROOT / "benchmark_results"
 
 CSV_FIELDS = [
+    "label_file",
     "session_id",
     "sample_index",
     "filename",
+    "sample_path",
     "mode",
+    "category",
+    "condition_group",
     "policy_name",
     "expected",
     "normalized_expected",
@@ -45,16 +56,22 @@ CSV_FIELDS = [
     "provider_passed",
     "provider_error",
     "notes",
+    "note_tags",
 ]
 
 
 @dataclass(frozen=True)
 class ArbitrationSample:
+    label_file: str
     session_id: str
     index: int
     filename: str
+    path: Path
     expected: str
     mode: str
+    category: str = ""
+    condition_group: str = ""
+    note_tags: tuple[str, ...] = ()
     notes: str = ""
 
     @property
@@ -150,69 +167,33 @@ def parse_policy_names(value: str | Iterable[str] | None) -> list[str]:
     return normalized_names or [HYBRID_DEFAULT_POLICY]
 
 
-def load_arbitration_samples(labels_path: Path = DEFAULT_LABELS_PATH) -> list[ArbitrationSample]:
-    if not labels_path.exists():
-        return []
-
-    payload = json.loads(labels_path.read_text(encoding="utf-8") or "[]")
-    if isinstance(payload, list):
-        return _samples_from_legacy_list(payload)
-    if isinstance(payload, dict):
-        if isinstance(payload.get("files"), list):
-            return _samples_from_session_object(payload)
-        if isinstance(payload.get("samples"), list):
-            return _samples_from_legacy_list(payload["samples"])
-    raise ValueError("Arbitration labels must be a list, an object with files[], or an object with samples[].")
-
-
-def _samples_from_session_object(payload: dict[str, Any]) -> list[ArbitrationSample]:
-    session_id = str(payload.get("session_id") or "unknown_session")
-    mode = normalize_profile(payload.get("mode") or COMMAND_PROFILE)
-    planned_sequence = [str(item).strip() for item in payload.get("planned_sequence") or []]
-    auto_label_by_order = bool(payload.get("auto_label_by_order"))
+def load_arbitration_samples(
+    labels_path: Path = DEFAULT_LABELS_PATH,
+    *,
+    corpus_dir: Path | None = None,
+    all_label_files: bool = False,
+) -> list[ArbitrationSample]:
+    resolved_corpus_dir = corpus_dir or labels_path.parent
+    corpus = load_corpus_samples(
+        corpus_dir=resolved_corpus_dir,
+        labels_path=labels_path,
+        all_label_files=all_label_files,
+    )
     samples: list[ArbitrationSample] = []
-
-    for index, file_entry in enumerate(payload.get("files") or []):
-        if not isinstance(file_entry, dict):
-            continue
-        filename = str(file_entry.get("filename") or file_entry.get("file") or "").strip()
-        if not filename:
-            continue
-        expected = str(file_entry.get("expected") or "").strip()
-        if not expected and auto_label_by_order and index < len(planned_sequence):
-            expected = planned_sequence[index]
+    for index, sample in enumerate(corpus.samples):
         samples.append(
             ArbitrationSample(
-                session_id=session_id,
+                label_file=sample.label_file,
+                session_id=sample.session_id or "legacy_labels",
                 index=index + 1,
-                filename=filename,
-                expected=expected,
-                mode=normalize_profile(file_entry.get("mode") or mode),
-                notes=str(file_entry.get("notes") or "").strip(),
-            )
-        )
-
-    return samples
-
-
-def _samples_from_legacy_list(labels: list[Any]) -> list[ArbitrationSample]:
-    samples: list[ArbitrationSample] = []
-    for index, label in enumerate(labels):
-        if not isinstance(label, dict):
-            continue
-        filename = str(label.get("filename") or label.get("file") or "").strip()
-        if not filename:
-            continue
-        sample_type = str(label.get("type") or "command").strip()
-        mode = "voice_note" if sample_type == "voice_note" else COMMAND_PROFILE
-        samples.append(
-            ArbitrationSample(
-                session_id=str(label.get("session_id") or "legacy_labels"),
-                index=index + 1,
-                filename=filename,
-                expected=str(label.get("expected") or "").strip(),
-                mode=normalize_profile(label.get("mode") or mode),
-                notes=str(label.get("notes") or "").strip(),
+                filename=sample.file,
+                path=sample.path,
+                expected=sample.expected,
+                mode=normalize_profile(sample.mode or COMMAND_PROFILE),
+                category=sample.category,
+                condition_group=condition_group_for_notes(sample.notes),
+                note_tags=note_tags(sample.notes),
+                notes=sample.notes,
             )
         )
     return samples
@@ -226,9 +207,30 @@ def run_benchmark(
     corpus_dir: Path = DEFAULT_CORPUS_DIR,
     output_dir: Path = DEFAULT_RESULTS_DIR,
     registry: Any | None = None,
+    all_label_files: bool = False,
     write_reports: bool = True,
 ) -> dict[str, Any]:
-    samples = load_arbitration_samples(labels_path)
+    corpus = load_corpus_samples(
+        corpus_dir=corpus_dir,
+        labels_path=labels_path,
+        all_label_files=all_label_files,
+    )
+    samples = [
+        ArbitrationSample(
+            label_file=sample.label_file,
+            session_id=sample.session_id or "legacy_labels",
+            index=index + 1,
+            filename=sample.file,
+            path=sample.path,
+            expected=sample.expected,
+            mode=normalize_profile(sample.mode or COMMAND_PROFILE),
+            category=sample.category,
+            condition_group=condition_group_for_notes(sample.notes),
+            note_tags=note_tags(sample.notes),
+            notes=sample.notes,
+        )
+        for index, sample in enumerate(corpus.samples)
+    ]
     selected_providers = parse_provider_names(provider_names)
     selected_policies = parse_policy_names(policy_names)
     active_registry = registry or AsrRegistry(
@@ -255,6 +257,7 @@ def run_benchmark(
         samples=samples,
         provider_names=selected_providers,
         policy_names=selected_policies,
+        corpus_stats=corpus.stats(),
     )
 
     if write_reports:
@@ -278,23 +281,27 @@ def _run_sample(
     provider_names: list[str],
     policy_name: str,
 ) -> list[dict[str, Any]]:
-    sample_path = (corpus_dir / sample.relative_path).resolve()
     expected = sample.expected
     normalized_expected = _normalize_expected(expected, sample.mode)
     base_row = {
+        "label_file": sample.label_file,
         "session_id": sample.session_id,
         "sample_index": sample.index,
         "filename": sample.filename,
+        "sample_path": str(sample.path),
         "mode": sample.mode,
+        "category": sample.category,
+        "condition_group": sample.condition_group,
         "policy_name": policy_name,
         "expected": expected,
         "normalized_expected": normalized_expected,
         "notes": sample.notes,
+        "note_tags": list(sample.note_tags),
     }
 
     try:
         result = arbiter.arbitrate_segment(
-            filename_or_path=str(sample_path),
+            filename_or_path=str(sample.path),
             provider_names=provider_names,
             mode=sample.mode,
             policy=policy_name,
@@ -390,26 +397,53 @@ def build_report(
     samples: list[ArbitrationSample],
     provider_names: list[str],
     policy_names: list[str],
+    corpus_stats: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    sample_keys = {(row["policy_name"], row["session_id"], row["sample_index"]) for row in rows}
+    sample_results_by_key: dict[tuple[Any, Any, Any, Any], dict[str, Any]] = {}
+    for row in rows:
+        key = (row["policy_name"], row["label_file"], row["session_id"], row["sample_index"])
+        sample_results_by_key.setdefault(key, row)
+    sample_results = list(sample_results_by_key.values())
+    sample_keys = set(sample_results_by_key)
     arbitration_passed_keys = {
-        (row["policy_name"], row["session_id"], row["sample_index"])
-        for row in rows
+        (row["policy_name"], row["label_file"], row["session_id"], row["sample_index"])
+        for row in sample_results
         if row.get("arbitration_passed")
     }
+    provider_stats = _provider_runtime_stats(rows)
+    score_summary = benchmark_score_summary(
+        sample_results,
+        passed_key="arbitration_passed",
+        raw_transcript_key="final_text",
+        error_key="provider_error",
+    )
     return {
         "timestamp": report_timestamp(),
+        "corpus": corpus_stats or {},
         "providers": provider_names,
         "policies": policy_names,
         "total_samples": len(samples),
+        "label_files_loaded": int((corpus_stats or {}).get("label_files_loaded") or len({sample.label_file for sample in samples})),
+        "label_files": list((corpus_stats or {}).get("label_files") or sorted({sample.label_file for sample in samples})),
         "total_evaluated_samples": len(sample_keys),
+        "blank_transcript_count": provider_stats["blank_transcript_count"],
+        "blank_transcript_rate": provider_stats["blank_transcript_rate"],
+        "provider_error_count": provider_stats["provider_error_count"],
+        "provider_error_rate": provider_stats["provider_error_rate"],
+        "command_match_count": provider_stats["command_match_count"],
+        "command_match_rate": provider_stats["command_match_rate"],
+        "score_summary": score_summary,
+        "condition_group_summary": score_summary["condition_groups"],
+        "weighted_score": score_summary["weighted"],
         "arbitration": {
             "passed": len(arbitration_passed_keys),
             "total": len(sample_keys),
             "accuracy": _ratio(len(arbitration_passed_keys), len(sample_keys)),
         },
         "by_policy": _policy_summary(rows),
+        "by_policy_condition_group": _policy_condition_group_summary(sample_results),
         "by_provider": _provider_summary(rows),
+        "by_provider_condition_group": _provider_condition_group_summary(rows),
         "by_command": _command_summary(rows),
         "rows": rows,
     }
@@ -418,7 +452,7 @@ def build_report(
 def _policy_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     sample_results: dict[tuple[Any, Any, Any], dict[str, Any]] = {}
     for row in rows:
-        key = (row.get("policy_name"), row.get("session_id"), row.get("sample_index"))
+        key = (row.get("policy_name"), row.get("label_file"), row.get("session_id"), row.get("sample_index"))
         sample_results.setdefault(key, row)
 
     buckets: dict[str, dict[str, Any]] = {}
@@ -444,16 +478,46 @@ def _provider_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             bucket["passed"] += 1
         if row.get("provider_error"):
             bucket["errors"] += 1
+        if not row.get("provider_error") and not str(row.get("provider_raw_transcript") or "").strip():
+            bucket["blank_transcripts"] = int(bucket.get("blank_transcripts", 0)) + 1
 
     for bucket in buckets.values():
         bucket["accuracy"] = _ratio(bucket["passed"], bucket["total"])
+        bucket["error_rate"] = _ratio(bucket["errors"], bucket["total"])
+        bucket["blank_transcript_rate"] = _ratio(int(bucket.get("blank_transcripts", 0)), bucket["total"])
     return buckets
+
+
+def _policy_condition_group_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    policies = sorted({str(row.get("policy_name") or "unknown") for row in rows})
+    return {
+        policy: benchmark_score_summary(
+            [row for row in rows if str(row.get("policy_name") or "unknown") == policy],
+            passed_key="arbitration_passed",
+            raw_transcript_key="final_text",
+            error_key="provider_error",
+        )
+        for policy in policies
+    }
+
+
+def _provider_condition_group_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    providers = sorted({str(row.get("provider") or "unknown") for row in rows})
+    return {
+        provider: benchmark_score_summary(
+            [row for row in rows if str(row.get("provider") or "unknown") == provider],
+            passed_key="provider_passed",
+            raw_transcript_key="provider_raw_transcript",
+            error_key="provider_error",
+        )
+        for provider in providers
+    }
 
 
 def _command_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     sample_results: dict[tuple[Any, Any, Any], dict[str, Any]] = {}
     for row in rows:
-        key = (row.get("policy_name"), row.get("session_id"), row.get("sample_index"))
+        key = (row.get("policy_name"), row.get("label_file"), row.get("session_id"), row.get("sample_index"))
         sample_results.setdefault(key, row)
 
     buckets: dict[str, dict[str, Any]] = {}
@@ -469,6 +533,28 @@ def _command_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return buckets
 
 
+def _provider_runtime_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total = len(rows)
+    blank_count = sum(1 for row in rows if not row.get("provider_error") and not str(row.get("provider_raw_transcript") or "").strip())
+    error_count = sum(1 for row in rows if row.get("provider_error"))
+    command_rows = [
+        row for row in rows
+        if normalize_profile(str(row.get("mode") or COMMAND_PROFILE)) == COMMAND_PROFILE
+        and str(row.get("normalized_expected") or "").strip()
+    ]
+    command_match_count = sum(1 for row in command_rows if row.get("provider_passed"))
+    return {
+        "provider_evaluations": total,
+        "blank_transcript_count": blank_count,
+        "blank_transcript_rate": _ratio(blank_count, total),
+        "provider_error_count": error_count,
+        "provider_error_rate": _ratio(error_count, total),
+        "command_evaluation_count": len(command_rows),
+        "command_match_count": command_match_count,
+        "command_match_rate": _ratio(command_match_count, len(command_rows)),
+    }
+
+
 def _ratio(passed: int, total: int) -> float:
     return (passed / total) if total else 0.0
 
@@ -478,7 +564,13 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(csv_file, fieldnames=CSV_FIELDS)
         writer.writeheader()
         for row in rows:
-            writer.writerow({field: row.get(field, "") for field in CSV_FIELDS})
+            writer.writerow({field: _csv_value(row.get(field, "")) for field in CSV_FIELDS})
+
+
+def _csv_value(value: Any) -> Any:
+    if isinstance(value, (list, tuple)):
+        return "|".join(str(item) for item in value)
+    return value
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -493,7 +585,8 @@ def main(argv: list[str] | None = None) -> int:
             f"Default: {HYBRID_DEFAULT_POLICY}"
         ),
     )
-    parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_PATH, help="Path to arbitration labels.json.")
+    parser.add_argument("--labels", "--labels-file", dest="labels", type=Path, default=DEFAULT_LABELS_PATH, help="Path to a single arbitration labels JSON file.")
+    parser.add_argument("--all-label-files", action="store_true", help="Benchmark every valid labels*.json file in the corpus directory.")
     parser.add_argument("--corpus-dir", type=Path, default=DEFAULT_CORPUS_DIR, help="Audio corpus root directory.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_RESULTS_DIR, help="Directory for JSON/CSV reports.")
     args = parser.parse_args(argv)
@@ -504,14 +597,20 @@ def main(argv: list[str] | None = None) -> int:
         labels_path=args.labels,
         corpus_dir=args.corpus_dir,
         output_dir=args.output_dir,
+        all_label_files=args.all_label_files,
         write_reports=True,
     )
     arbitration = report["arbitration"]
     print(
         "ASR arbitration benchmark complete: "
         f"{arbitration['passed']}/{arbitration['total']} arbitration results passed "
-        f"across {report['total_samples']} labeled samples."
+        f"across {report['total_samples']} labeled samples from {report['label_files_loaded']} label files."
     )
+    weighted = report["weighted_score"].get("score")
+    if weighted is not None:
+        print(f"Weighted condition score: {weighted:.3f}")
+    for group, summary in report["condition_group_summary"].items():
+        print(f"{group}: {summary['passed']}/{summary['total']} passed ({summary['accuracy']:.3f})")
     print(f"JSON: {report['json_path']}")
     print(f"CSV: {report['csv_path']}")
     return 0

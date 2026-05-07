@@ -1,0 +1,49 @@
+{
+  "session_id": "numbers_five_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/numbers/five/five__number-clean__20260507T005737.wav",
+      "expected": "five",
+      "notes": "number|clean",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/five/five__number-cutoff_end__20260507T005857.wav",
+      "expected": "five",
+      "notes": "number|cutoff_end",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/five/five__number-cutoff_start__20260507T005841.wav",
+      "expected": "five",
+      "notes": "number|cutoff_start",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/five/five__number-false_positive__20260507T005701.wav",
+      "expected": "five",
+      "notes": "number|false_positive",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/five/five__number-fast__20260507T005750.wav",
+      "expected": "five",
+      "notes": "number|fast",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/five/five__number-quiet__20260507T005810.wav",
+      "expected": "five",
+      "notes": "number|quiet",
+      "category": "numbers"
+    },
+    {
+      "filename": "commands/numbers/five/five__number-sloppy__20260507T005822.wav",
+      "expected": "five",
+      "notes": "number|sloppy",
+      "category": "numbers"
+    }
+  ]
+}

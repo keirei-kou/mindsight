@@ -1,0 +1,25 @@
+{
+  "session_id": "shapes_circle_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/shapes/circle/circle__shape-clean__20260507T010148.wav",
+      "expected": "circle",
+      "notes": "shape|clean",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/circle/circle__shape-false_positive__20260507T010211.wav",
+      "expected": "circle",
+      "notes": "shape|false_positive",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/circle/circle__shape-fast__20260507T010201.wav",
+      "expected": "circle",
+      "notes": "shape|fast",
+      "category": "shapes"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "session_id": "color_blue_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/colors/blue/blue__single_word-cutoff_end__20260506T161214.wav",
+      "expected": "blue",
+      "notes": "single_word|cutoff_end",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/blue/blue__single_word-cutoff_start__20260506T161116.wav",
+      "expected": "blue",
+      "notes": "single_word|cutoff_start",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/blue/blue__single_word-false_positive__20260506T160117.wav",
+      "expected": "blue",
+      "notes": "single_word|false_positive",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/blue/blue__single_word-fast__20260506T155044.wav",
+      "expected": "blue",
+      "notes": "single_word|fast",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/blue/blue__single_word-quiet__20260506T155242.wav",
+      "expected": "blue",
+      "notes": "single_word|quiet",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/blue/blue__single_word-sloppy__20260506T155345.wav",
+      "expected": "blue",
+      "notes": "single_word|sloppy",
+      "category": "colors"
+    }
+  ]
+}

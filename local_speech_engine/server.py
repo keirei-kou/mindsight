@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .asr import AsrArbiter, AsrProviderError, AsrRegistry, LocalSpeechConfig
 from .audio_capture import AudioCaptureConfig, SoundDeviceAudioCapture
-from .corpus import CorpusError, delete_recording_segment, save_segment_to_corpus
+from .corpus import CorpusError, delete_corpus_sample, delete_recording_segment, save_segment_to_corpus
 from .protocol import normalize_command
 from .vad_engine import (
     VadConfig,
@@ -123,6 +123,7 @@ class LocalVadService:
         self._running = False
         self._sequence = 0
         self._session_id = ""
+        self._recording_context: dict[str, str] = {}
         self._voice_note_lock = threading.Lock()
         self._voice_note_context: dict[str, Any] | None = None
         self._voice_note_counter = 0
@@ -148,10 +149,25 @@ class LocalVadService:
             "asr_providers": [status.to_dict() for status in self.asr_registry.list_statuses()],
         }
 
-    async def start_listening(self) -> None:
+    async def start_listening(
+        self,
+        *,
+        expected: str | None = None,
+        notes: str | None = None,
+        sample_type: str | None = None,
+        category: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
         loop = asyncio.get_running_loop()
         with self._lock:
             self._loop = loop
+            self._recording_context = self._normalize_recording_context(
+                expected=expected,
+                notes=notes,
+                sample_type=sample_type,
+                category=category,
+                session_id=session_id,
+            )
             if self._running:
                 self._emit("error", message="Local VAD engine is already listening.")
                 return
@@ -166,6 +182,41 @@ class LocalVadService:
                 daemon=True,
             )
             self._worker.start()
+
+    async def update_recording_context(
+        self,
+        *,
+        expected: str | None = None,
+        notes: str | None = None,
+        sample_type: str | None = None,
+        category: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        with self._lock:
+            self._recording_context = self._normalize_recording_context(
+                expected=expected,
+                notes=notes,
+                sample_type=sample_type,
+                category=category,
+                session_id=session_id,
+            )
+
+    def _normalize_recording_context(
+        self,
+        *,
+        expected: str | None = None,
+        notes: str | None = None,
+        sample_type: str | None = None,
+        category: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, str]:
+        return {
+            "expected": str(expected or "").strip(),
+            "notes": str(notes or "").strip(),
+            "sample_type": str(sample_type or "").strip(),
+            "category": str(category or "").strip(),
+            "session_id": str(session_id or "").strip(),
+        }
 
     async def stop_listening(self, reason: str = "stop_command") -> None:
         del reason
@@ -262,7 +313,15 @@ class LocalVadService:
             if segment is None:
                 return
 
-            saved = save_segment_wav(segment, self.recordings_dir)
+            with self._lock:
+                recording_context = dict(self._recording_context)
+
+            saved = save_segment_wav(
+                segment,
+                self.recordings_dir,
+                expected=recording_context.get("expected"),
+                notes=recording_context.get("notes"),
+            )
             self.asr_registry.remember_segment(saved.path)
             self._emit(
                 "segment_saved",
@@ -272,6 +331,7 @@ class LocalVadService:
                 sample_rate=saved.sample_rate,
                 prebuffer_ms=saved.prebuffer_ms,
                 hangover_ms=saved.hangover_ms,
+                recording_context=recording_context,
             )
             if self.asr_registry.auto_transcribe_enabled:
                 self._schedule_auto_transcribe(saved.filename, session_id)
@@ -663,6 +723,38 @@ class LocalVadService:
                 details={},
             )
 
+    async def delete_corpus_sample(
+        self,
+        *,
+        filename: str | None,
+        label_file: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        resolved_filename = Path(filename or "").name
+        try:
+            deleted = await asyncio.to_thread(
+                delete_corpus_sample,
+                filename,
+                label_file=label_file,
+                session_id=session_id,
+            )
+            self._emit("corpus_sample_deleted", **deleted)
+        except CorpusError as error:
+            self._emit(
+                "corpus_sample_error",
+                filename=resolved_filename,
+                **error.to_event_payload(),
+            )
+        except Exception as error:
+            self._emit(
+                "corpus_sample_error",
+                filename=resolved_filename,
+                code="unexpected_error",
+                message=str(error),
+                setup_hint="Check the local speech engine console for details.",
+                details={},
+            )
+
     def _emit_asr_provider_status(self) -> None:
         self._emit(
             "asr_provider_status",
@@ -746,9 +838,23 @@ async def vad_websocket(websocket: WebSocket) -> None:
 
             command = normalize_command(payload.get("command") or payload.get("type") or payload.get("action"))
             if command == "start_vad":
-                await service.start_listening()
+                await service.start_listening(
+                    expected=payload.get("expected"),
+                    notes=payload.get("notes"),
+                    sample_type=payload.get("sample_type") or payload.get("type"),
+                    category=payload.get("category"),
+                    session_id=payload.get("session_id"),
+                )
             elif command == "stop_vad":
                 await service.stop_listening()
+            elif command == "update_recording_context":
+                await service.update_recording_context(
+                    expected=payload.get("expected"),
+                    notes=payload.get("notes"),
+                    sample_type=payload.get("sample_type") or payload.get("type"),
+                    category=payload.get("category"),
+                    session_id=payload.get("session_id"),
+                )
             elif command == "list_asr_providers":
                 await service.list_asr_providers()
             elif command == "load_asr_provider":
@@ -797,6 +903,12 @@ async def vad_websocket(websocket: WebSocket) -> None:
             elif command == "delete_recording_segment":
                 await service.delete_recording_segment(
                     payload.get("filename") or payload.get("source_filename") or payload.get("path")
+                )
+            elif command == "delete_corpus_sample":
+                await service.delete_corpus_sample(
+                    filename=payload.get("filename") or payload.get("file") or payload.get("path"),
+                    label_file=payload.get("label_file"),
+                    session_id=payload.get("session_id"),
                 )
             else:
                 service._emit("error", message=f"Unknown local VAD command: {command}")

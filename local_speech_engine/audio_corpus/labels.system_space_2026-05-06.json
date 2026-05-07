@@ -1,0 +1,25 @@
+{
+  "session_id": "system_space_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/other/space/space__system-clean__20260507T024911.wav",
+      "expected": "space",
+      "notes": "system|clean",
+      "category": "other"
+    },
+    {
+      "filename": "commands/other/space/space__system-false_positive__20260507T024955.wav",
+      "expected": "space",
+      "notes": "system|false_positive",
+      "category": "other"
+    },
+    {
+      "filename": "commands/other/space/space__system-fast__20260507T024923.wav",
+      "expected": "space",
+      "notes": "system|fast",
+      "category": "other"
+    }
+  ]
+}

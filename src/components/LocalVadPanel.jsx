@@ -3,6 +3,8 @@ import { createLocalVadClient, fetchLocalVadHealth, getLocalVadUrls } from "../l
 
 const MAX_EVENTS = 80;
 const MAX_SEGMENTS = 20;
+/** Set true to prompt before deleting a recording from local_speech_engine/recordings. */
+const ENABLE_DELETE_CONFIRM = false;
 const LAB = {
   background: "#F7F6F2",
   surface: "#FFFFFF",
@@ -99,6 +101,16 @@ function normalizeAsrText(value) {
     .trim();
 
   return COMMAND_ALIASES[normalized] || normalized;
+}
+
+function getRecordingContextPayload(form) {
+  return {
+    expected: form.expected.trim(),
+    type: form.type,
+    category: form.category,
+    notes: form.notes.trim(),
+    sessionId: form.sessionId.trim(),
+  };
 }
 
 function getResultMeta(expected, normalizedTranscript, status) {
@@ -270,6 +282,10 @@ function summarizeEvent(event) {
 
   if (event.type === "corpus_sample_error") {
     return event.message || "corpus sample error";
+  }
+
+  if (event.type === "corpus_sample_deleted") {
+    return `corpus sample deleted / ${formatValue(event.file)}`;
   }
 
   if (event.type === "recording_segment_deleted") {
@@ -541,19 +557,42 @@ export function LocalVadPanel() {
     } else if (event.type === "corpus_sample_saved") {
       setCorpusStatus("ready");
       const sampleFile = event.sample?.file || event.sample?.filename || "";
+      const sampleLabelFile = event.sample?.label_file || "";
       setCorpusMessage(`Saved ${sampleFile || "labeled sample"}.`);
       const savedFilename = getBasename(sampleFile);
-      if (savedFilename) {
-        setSegmentLabelState(savedFilename, {
+      const sourceFilename = event.sample?.source_filename || savedFilename;
+      if (sourceFilename) {
+        setSegmentLabelState(sourceFilename, {
           expected: event.sample?.expected || "",
           sampleType: event.sample?.type || event.sample?.mode || "command",
           category: event.sample?.category || "other",
           notes: event.sample?.notes || "",
+          corpusFile: sampleFile,
+          corpusLabelFile: sampleLabelFile,
           corpusSaved: true,
           corpusStatus: "saved",
           corpusError: "",
         });
       }
+    } else if (event.type === "corpus_sample_deleted") {
+      setCorpusStatus("ready");
+      setCorpusMessage(`Deleted corpus sample ${event.file || event.filename}.`);
+      setSegments((currentSegments) => currentSegments.map((segment) => {
+        const matchesSavedCorpus = segment.corpusFile && segment.corpusFile === event.file;
+        const matchesFilename = !segment.corpusFile && event.filename && segment.filename === event.filename;
+        if (!matchesSavedCorpus && !matchesFilename) {
+          return segment;
+        }
+
+        return {
+          ...segment,
+          corpusFile: "",
+          corpusLabelFile: "",
+          corpusSaved: false,
+          corpusStatus: segment.expected ? "pending" : "needs_review",
+          corpusError: "",
+        };
+      }));
     } else if (event.type === "corpus_sample_error") {
       setCorpusStatus("error");
       setCorpusMessage([event.message, event.setup_hint].filter(Boolean).join(" "));
@@ -603,6 +642,7 @@ export function LocalVadPanel() {
         setConnectionStatus("connected");
         setErrorText("");
         client.listAsrProviders();
+        client.updateRecordingContext(getRecordingContextPayload(corpusFormRef.current));
       },
       onClose: (event, { wasRequested }) => {
         setConnectionStatus("disconnected");
@@ -647,7 +687,7 @@ export function LocalVadPanel() {
     try {
       setErrorText("");
       setEngineStatus("starting");
-      clientRef.current?.startListening();
+      clientRef.current?.startListening(getRecordingContextPayload(corpusForm));
     } catch (error) {
       setEngineStatus("error");
       setErrorText(error instanceof Error ? error.message : "Unable to start local VAD.");
@@ -818,11 +858,16 @@ export function LocalVadPanel() {
       return;
     }
 
-    if (!window.confirm(`Delete ${segment.filename}? This removes the WAV from local_speech_engine/recordings.`)) {
+    // TODO: Replace with toast + undo pattern for safer high-frequency corpus workflows.
+    if (
+      ENABLE_DELETE_CONFIRM
+      && !window.confirm(`Delete ${segment.filename}? This removes the WAV from local_speech_engine/recordings.`)
+    ) {
       return;
     }
 
     try {
+      console.log("Deleted segment:", segment.filename);
       setCorpusStatus("saving");
       setCorpusMessage(`Deleting ${segment.filename}...`);
       setSegmentLabelState(segment.filename, {
@@ -836,6 +881,35 @@ export function LocalVadPanel() {
       setSegmentLabelState(segment.filename, {
         corpusStatus: "needs_review",
         corpusError: error instanceof Error ? error.message : "Unable to delete segment.",
+      });
+    }
+  };
+
+  const deleteCorpusSample = (segment) => {
+    if (!segment?.corpusFile) {
+      setCorpusStatus("error");
+      setCorpusMessage("No saved corpus sample is linked to this row.");
+      return;
+    }
+
+    try {
+      setCorpusStatus("saving");
+      setCorpusMessage(`Deleting corpus sample ${segment.corpusFile}...`);
+      setSegmentLabelState(segment.filename, {
+        corpusStatus: "deleting",
+        corpusError: "",
+      });
+      clientRef.current?.deleteCorpusSample({
+        file: segment.corpusFile,
+        labelFile: segment.corpusLabelFile || "",
+        sessionId: segment.sessionId || "",
+      });
+    } catch (error) {
+      setCorpusStatus("error");
+      setCorpusMessage(error instanceof Error ? error.message : "Unable to delete corpus sample.");
+      setSegmentLabelState(segment.filename, {
+        corpusStatus: "needs_review",
+        corpusError: error instanceof Error ? error.message : "Unable to delete corpus sample.",
       });
     }
   };
@@ -897,12 +971,57 @@ export function LocalVadPanel() {
   const isListening = engineStatus === "listening" || engineStatus === "starting";
   const isStopping = engineStatus === "stopping";
   const isVadToggleDisabled = !isConnected || engineStatus === "starting" || isStopping;
+
+  const loadAllAsrProviders = useCallback(() => {
+    if (!clientRef.current || !isConnected) {
+      return;
+    }
+
+    const list = asrProvidersRef.current.length
+      ? asrProvidersRef.current
+      : [{ name: "vosk" }, { name: "sherpa" }];
+    const toLoad = list.filter((p) => p?.name && p.available !== false && !p.loaded);
+
+    if (!toLoad.length) {
+      setAsrErrorText("");
+      setAsrStatus("ready");
+      return;
+    }
+
+    try {
+      setAsrStatus("loading");
+      setAsrErrorText("");
+      toLoad.forEach((p) => {
+        try {
+          clientRef.current.loadAsrProvider(p.name);
+        } catch (err) {
+          console.warn("Load ASR provider failed:", p.name, err);
+        }
+      });
+    } catch (error) {
+      setAsrStatus("error");
+      setAsrErrorText(error instanceof Error ? error.message : "Unable to load ASR providers.");
+    }
+  }, [isConnected]);
+
+  useEffect(() => {
+    if (!isConnected) {
+      return;
+    }
+
+    clientRef.current?.updateRecordingContext(getRecordingContextPayload(corpusForm));
+  }, [corpusForm, isConnected]);
+
   const latestSegment = segments[0] || null;
   const selectedSegment = segments.find((segment) => segment.filename === selectedDebugFilename) || latestSegment;
   const selectedSegmentFilename = selectedSegment?.filename || "";
   const selectedProviderStatus = asrProviders.find((provider) => provider.name === selectedAsrProvider);
   const isSelectedProviderLoaded = Boolean(selectedProviderStatus?.loaded);
   const arbitrationProviderOptions = asrProviders.length ? asrProviders : [{ name: "vosk" }, { name: "sherpa" }];
+  const asrProvidersNeedingLoad = useMemo(() => {
+    const list = asrProviders.length ? asrProviders : [{ name: "vosk" }, { name: "sherpa" }];
+    return list.filter((p) => p?.name && p.available !== false && !p.loaded);
+  }, [asrProviders]);
   const debugSegmentFilename = segments.some((segment) => segment.filename === selectedDebugFilename)
     ? selectedDebugFilename
     : latestSegment?.filename || "";
@@ -937,6 +1056,8 @@ export function LocalVadPanel() {
       category: segment.category || "other",
       notes: segment.notes || "",
       sessionId: segment.sessionId || "",
+      corpusFile: segment.corpusFile || "",
+      corpusLabelFile: segment.corpusLabelFile || "",
       corpusStatus: segment.corpusStatus || (segment.corpusSaved ? "saved" : segment.expected ? "pending" : "needs_review"),
       corpusError: segment.corpusError || "",
       result,
@@ -1188,6 +1309,15 @@ export function LocalVadPanel() {
           >
             Load Provider
           </button>
+          <button
+            type="button"
+            onClick={() => loadAllAsrProviders()}
+            disabled={!isConnected || asrStatus === "loading" || asrProvidersNeedingLoad.length === 0}
+            title={asrProvidersNeedingLoad.length === 0 ? "All available providers are already loaded" : `Load: ${asrProvidersNeedingLoad.map((p) => p.name).join(", ")}`}
+            style={{ minHeight: "36px", background: LAB.primarySoft, color: LAB.primary, border: `1px solid ${LAB.primary}`, borderRadius: "6px", padding: "8px 11px", font: "inherit", fontWeight: 750, cursor: !isConnected || asrStatus === "loading" || asrProvidersNeedingLoad.length === 0 ? "not-allowed" : "pointer", opacity: !isConnected || asrStatus === "loading" || asrProvidersNeedingLoad.length === 0 ? 0.7 : 1 }}
+          >
+            Load All Providers
+          </button>
           <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: LAB.text, fontSize: "0.8rem", lineHeight: 1.4, minHeight: "36px" }}>
             <input
               type="checkbox"
@@ -1358,7 +1488,7 @@ export function LocalVadPanel() {
                 <col style={{ width: "110px" }} />
                 <col style={{ width: "78px" }} />
                 <col style={{ width: "100px" }} />
-                <col style={{ width: "190px" }} />
+                <col style={{ width: "310px" }} />
               </colgroup>
               <thead>
                 <tr style={{ background: LAB.primarySoft, color: LAB.text, textAlign: "left" }}>
@@ -1411,7 +1541,7 @@ export function LocalVadPanel() {
                     <td style={{ ...capturedCellStyle, color: row.result.color, fontWeight: 850 }}>{row.result.label}</td>
                     <td style={{ ...capturedCellStyle, color: getStatusColor(row.corpusStatus), fontWeight: 850 }} title={row.corpusError || row.corpusStatus}>{row.corpusStatus}</td>
                     <td style={{ ...capturedCellStyle }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                         <button
                           type="button"
                           title={saveTitle}
@@ -1437,6 +1567,7 @@ export function LocalVadPanel() {
                         </button>
                         <button
                           type="button"
+                          title="Delete only the raw WAV from local_speech_engine/recordings."
                           onClick={(event) => {
                             event.stopPropagation();
                             deleteRecordingSegment(row.segment);
@@ -1444,8 +1575,22 @@ export function LocalVadPanel() {
                           disabled={!isConnected || row.corpusStatus === "deleting"}
                           style={{ minHeight: "28px", background: LAB.error, color: "#ffffff", border: `1px solid ${LAB.error}`, borderRadius: "5px", padding: "4px 7px", font: "inherit", fontSize: "0.7rem", fontWeight: 750, cursor: !isConnected || row.corpusStatus === "deleting" ? "not-allowed" : "pointer", opacity: !isConnected || row.corpusStatus === "deleting" ? 0.62 : 1 }}
                         >
-                          Delete
+                          Delete recording
                         </button>
+                        {row.corpusFile && (
+                          <button
+                            type="button"
+                            title="Delete the saved corpus WAV and its label entry."
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              deleteCorpusSample(row.segment);
+                            }}
+                            disabled={!isConnected || row.corpusStatus === "deleting"}
+                            style={{ minHeight: "28px", background: LAB.surfaceMuted, color: LAB.error, border: `1px solid ${LAB.error}`, borderRadius: "5px", padding: "4px 7px", font: "inherit", fontSize: "0.7rem", fontWeight: 750, cursor: !isConnected || row.corpusStatus === "deleting" ? "not-allowed" : "pointer", opacity: !isConnected || row.corpusStatus === "deleting" ? 0.62 : 1 }}
+                          >
+                            Delete corpus sample
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

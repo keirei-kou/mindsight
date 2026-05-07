@@ -1,0 +1,25 @@
+{
+  "session_id": "shapes_cross_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/shapes/cross/cross__shape-clean__20260507T012609.wav",
+      "expected": "cross",
+      "notes": "shape|clean",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/cross/cross__shape-false_positive__20260507T012552.wav",
+      "expected": "cross",
+      "notes": "shape|false_positive",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/cross/cross__shape-fast__20260507T012604.wav",
+      "expected": "cross",
+      "notes": "shape|fast",
+      "category": "shapes"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "session_id": "color_red_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/colors/red/red__single_word-cutoff_end__20260506T161310.wav",
+      "expected": "red",
+      "notes": "single_word|cutoff_end",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/red/red__single_word-cutoff_start__20260506T161418.wav",
+      "expected": "red",
+      "notes": "single_word|cutoff_start",
+      "category": "colors"
+    }
+  ]
+}
