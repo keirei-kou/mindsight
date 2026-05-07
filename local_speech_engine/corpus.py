@@ -40,6 +40,53 @@ class CorpusError(Exception):
         }
 
 
+@dataclass(frozen=True)
+class CorpusSample:
+    label_file: str
+    session_id: str
+    file: str
+    path: Path
+    expected: str
+    sample_type: str
+    mode: str
+    category: str
+    notes: str
+    sample_id: str = ""
+    index: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "label_file": self.label_file,
+            "session_id": self.session_id,
+            "file": self.file,
+            "path": str(self.path),
+            "expected": self.expected,
+            "type": self.sample_type,
+            "mode": self.mode,
+            "category": self.category,
+            "notes": self.notes,
+            "id": self.sample_id,
+            "index": self.index,
+        }
+
+
+@dataclass(frozen=True)
+class CorpusSampleLoadResult:
+    samples: tuple[CorpusSample, ...]
+    label_files: tuple[str, ...]
+    corpus_dir: Path
+    all_label_files: bool
+
+    def stats(self) -> dict[str, Any]:
+        return {
+            "corpus_dir": str(self.corpus_dir),
+            "all_label_files": self.all_label_files,
+            "label_files_loaded": len(self.label_files),
+            "label_files": list(self.label_files),
+            "total_samples_loaded": len(self.samples),
+        }
+
+
 def utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -77,6 +124,179 @@ def write_labels(labels: list[dict[str, Any]], labels_path: Path | None = None) 
     path = labels_path or DEFAULT_LABELS_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(labels, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
+def is_corpus_label_file(path: Path) -> bool:
+    name = path.name
+    lowered = name.lower()
+    if not lowered.startswith("labels") or not lowered.endswith(".json"):
+        return False
+    if lowered == "labels.example.json":
+        return False
+    if ".bak." in lowered or lowered.endswith(".bak"):
+        return False
+    if lowered.endswith(".tmp.json") or lowered.endswith(".temp.json"):
+        return False
+    if lowered.startswith("~") or lowered.endswith("~"):
+        return False
+    return True
+
+
+def corpus_label_files(corpus_dir: Path = DEFAULT_CORPUS_DIR) -> list[Path]:
+    root = corpus_dir.resolve()
+    paths = [root / "labels.json"]
+    paths.extend(sorted(root.glob("labels.*.json"), key=lambda path: path.name))
+
+    seen: set[Path] = set()
+    label_paths: list[Path] = []
+    for path in paths:
+        resolved = path.resolve()
+        if resolved in seen or not resolved.exists() or not resolved.is_file():
+            continue
+        seen.add(resolved)
+        if is_corpus_label_file(resolved):
+            label_paths.append(resolved)
+    return label_paths
+
+
+def load_corpus_samples(
+    *,
+    corpus_dir: Path = DEFAULT_CORPUS_DIR,
+    labels_path: Path | None = DEFAULT_LABELS_PATH,
+    all_label_files: bool = False,
+) -> CorpusSampleLoadResult:
+    root = corpus_dir.resolve()
+    label_paths = corpus_label_files(root) if all_label_files else _single_label_file(labels_path, root)
+    samples: list[CorpusSample] = []
+
+    for label_path in label_paths:
+        payload = _load_label_payload(label_path)
+        samples.extend(_samples_from_label_payload(payload, label_path=label_path, corpus_dir=root))
+
+    return CorpusSampleLoadResult(
+        samples=tuple(samples),
+        label_files=tuple(path.name for path in label_paths),
+        corpus_dir=root,
+        all_label_files=all_label_files,
+    )
+
+
+def _single_label_file(labels_path: Path | None, corpus_dir: Path) -> list[Path]:
+    path = labels_path or corpus_dir / "labels.json"
+    if not path.is_absolute():
+        path = corpus_dir / path
+    resolved = path.resolve()
+    if not resolved.exists():
+        return []
+    if not resolved.is_relative_to(corpus_dir.resolve()):
+        raise CorpusError(
+            code="label_file_outside_corpus",
+            message="Corpus label files must be inside local_speech_engine/audio_corpus.",
+            setup_hint="Pass a labels JSON filename or path inside the corpus directory.",
+            details={"path": str(resolved), "corpus_dir": str(corpus_dir)},
+        )
+    if not is_corpus_label_file(resolved):
+        return []
+    return [resolved]
+
+
+def _samples_from_label_payload(payload: Any, *, label_path: Path, corpus_dir: Path) -> list[CorpusSample]:
+    if isinstance(payload, list):
+        return _samples_from_entries(
+            payload,
+            label_path=label_path,
+            corpus_dir=corpus_dir,
+            session_id="legacy_labels",
+            default_mode="command",
+            default_type="command",
+        )
+
+    if isinstance(payload, dict):
+        session_id = str(payload.get("session_id") or "").strip()
+        default_mode = str(payload.get("mode") or payload.get("type") or "command").strip()
+        if isinstance(payload.get("files"), list):
+            return _samples_from_entries(
+                payload["files"],
+                label_path=label_path,
+                corpus_dir=corpus_dir,
+                session_id=session_id or label_path.stem.removeprefix("labels.").strip() or "session_labels",
+                default_mode=default_mode,
+                default_type=default_mode,
+                planned_sequence=payload.get("planned_sequence"),
+                auto_label_by_order=bool(payload.get("auto_label_by_order")),
+            )
+        if isinstance(payload.get("samples"), list):
+            return _samples_from_entries(
+                payload["samples"],
+                label_path=label_path,
+                corpus_dir=corpus_dir,
+                session_id=session_id or "legacy_labels",
+                default_mode=default_mode,
+                default_type=default_mode,
+            )
+
+    raise CorpusError(
+        code="labels_json_shape_invalid",
+        message="Corpus labels must be a JSON array, an object with files[], or an object with samples[].",
+        setup_hint="Use local_speech_engine/audio_corpus label formats accepted by the benchmark loader.",
+        details={"path": str(label_path)},
+    )
+
+
+def _samples_from_entries(
+    entries: list[Any],
+    *,
+    label_path: Path,
+    corpus_dir: Path,
+    session_id: str,
+    default_mode: str,
+    default_type: str,
+    planned_sequence: Any = None,
+    auto_label_by_order: bool = False,
+) -> list[CorpusSample]:
+    planned = [str(item).strip() for item in planned_sequence or []]
+    samples: list[CorpusSample] = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        filename = str(entry.get("file") or entry.get("filename") or "").strip()
+        if not filename:
+            continue
+        expected = str(entry.get("expected") or "").strip()
+        if not expected and auto_label_by_order and index < len(planned):
+            expected = planned[index]
+
+        sample_type = str(entry.get("type") or entry.get("sample_type") or default_type or "command").strip()
+        mode = str(entry.get("mode") or sample_type or default_mode or "command").strip()
+        if mode == "voice_note":
+            sample_type = "voice_note"
+        elif sample_type not in VALID_SAMPLE_TYPES:
+            sample_type = "command"
+        category = str(entry.get("category") or normalize_category(sample_type, None)).strip()
+        sample_path = _resolve_corpus_sample_path(filename, corpus_dir)
+        samples.append(
+            CorpusSample(
+                label_file=label_path.name,
+                session_id=str(entry.get("session_id") or session_id or "").strip(),
+                file=filename,
+                path=sample_path,
+                expected=expected,
+                sample_type=sample_type,
+                mode=mode or sample_type,
+                category=category,
+                notes=str(entry.get("notes") or "").strip(),
+                sample_id=str(entry.get("id") or "").strip(),
+                index=len(samples) + 1,
+            )
+        )
+    return samples
+
+
+def _resolve_corpus_sample_path(filename: str, corpus_dir: Path) -> Path:
+    candidate = Path(filename)
+    if not candidate.is_absolute():
+        candidate = corpus_dir / candidate
+    return candidate.resolve()
 
 
 def slugify_session_id(value: str | None) -> str:

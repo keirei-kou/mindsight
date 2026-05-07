@@ -106,6 +106,7 @@ class BenchmarkArbitrationTests(unittest.TestCase):
         self.assertEqual(samples[1].expected, "blue")
         self.assertEqual(samples[0].filename, "commands/colors/red_001.wav")
         self.assertEqual(corpus_dir.name, "audio_corpus")
+        self.assertEqual(samples[0].label_file, "labels.json")
 
     def test_benchmark_runs_arbitration_and_writes_reports(self) -> None:
         corpus_dir, labels_path, output_dir = self.reset_test_root()
@@ -135,6 +136,7 @@ class BenchmarkArbitrationTests(unittest.TestCase):
         )
 
         self.assertEqual(report["total_samples"], 2)
+        self.assertEqual(report["label_files_loaded"], 1)
         self.assertEqual(report["policies"], ["hybrid_default", "confidence_weighted"])
         self.assertEqual(report["arbitration"]["passed"], 4)
         self.assertEqual(report["by_policy"]["hybrid_default"]["passed"], 2)
@@ -172,6 +174,8 @@ class BenchmarkArbitrationTests(unittest.TestCase):
 
         self.assertEqual(report["arbitration"]["passed"], 1)
         self.assertEqual(report["by_provider"]["sherpa"]["errors"], 1)
+        self.assertEqual(report["provider_error_count"], 1)
+        self.assertEqual(report["blank_transcript_count"], 0)
         self.assertEqual(len(report["rows"]), 2)
 
     def test_parse_policy_names_dedupes_and_safely_falls_back_unknown_values(self) -> None:
@@ -179,6 +183,56 @@ class BenchmarkArbitrationTests(unittest.TestCase):
             parse_policy_names("hybrid_default,not_real,confidence_weighted,hybrid_default"),
             ["hybrid_default", "confidence_weighted"],
         )
+
+    def test_benchmark_can_load_all_valid_label_files_and_ignores_backups(self) -> None:
+        corpus_dir, labels_path, output_dir = self.reset_test_root()
+        labels_path.write_text(json.dumps([
+            {
+                "file": "commands/colors/red_001.wav",
+                "expected": "red",
+                "type": "command",
+                "category": "colors",
+            }
+        ]), encoding="utf-8")
+        session_labels = corpus_dir / "labels.session_blue.json"
+        session_labels.write_text(json.dumps({
+            "session_id": "session_blue",
+            "mode": "command",
+            "files": [
+                {
+                    "filename": "commands/colors/blue_001.wav",
+                    "expected": "blue",
+                    "category": "colors",
+                    "notes": "session sample",
+                }
+            ],
+        }), encoding="utf-8")
+        (corpus_dir / "labels.example.json").write_text(json.dumps([
+            {"file": "commands/colors/example.wav", "expected": "example"}
+        ]), encoding="utf-8")
+        (corpus_dir / "labels.session_blue.json.bak.20260507T000000Z").write_text("[]", encoding="utf-8")
+        registry = FakeRegistry([
+            FakeProvider("vosk", {"red_001.wav": "red", "blue_001.wav": "blue"}),
+            FakeProvider("sherpa", {"red_001.wav": "", "blue_001.wav": "blue"}),
+        ])
+
+        report = run_benchmark(
+            provider_names=["vosk", "sherpa"],
+            labels_path=labels_path,
+            corpus_dir=corpus_dir,
+            output_dir=output_dir,
+            registry=registry,
+            all_label_files=True,
+            write_reports=False,
+        )
+
+        self.assertEqual(report["total_samples"], 2)
+        self.assertEqual(report["label_files_loaded"], 2)
+        self.assertEqual(set(report["label_files"]), {"labels.json", "labels.session_blue.json"})
+        self.assertEqual(report["arbitration"]["passed"], 2)
+        self.assertEqual(report["blank_transcript_count"], 1)
+        self.assertEqual(report["command_match_count"], 3)
+        self.assertEqual({row["label_file"] for row in report["rows"]}, set(report["label_files"]))
 
 
 if __name__ == "__main__":
