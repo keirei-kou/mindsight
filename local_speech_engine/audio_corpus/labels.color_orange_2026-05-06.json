@@ -1,0 +1,25 @@
+{
+  "session_id": "color_orange_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/colors/orange/orange__multi_syllable-clean__20260506T160316.wav",
+      "expected": "orange",
+      "notes": "multi_syllable|clean",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/orange/orange__multi_syllable-false_positive__20260506T160353.wav",
+      "expected": "orange",
+      "notes": "multi_syllable|false_positive",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/orange/orange__multi_syllable-fast__20260506T160335__002.wav",
+      "expected": "orange",
+      "notes": "multi_syllable|fast",
+      "category": "colors"
+    }
+  ]
+}

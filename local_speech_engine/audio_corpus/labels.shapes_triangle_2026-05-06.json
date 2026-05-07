@@ -1,0 +1,19 @@
+{
+  "session_id": "shapes_triangle_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/shapes/triangle/triangle__shape-clean__20260507T012213.wav",
+      "expected": "triangle",
+      "notes": "shape|clean",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/triangle/triangle__shape-fast__20260507T012204.wav",
+      "expected": "triangle",
+      "notes": "shape|fast",
+      "category": "shapes"
+    }
+  ]
+}

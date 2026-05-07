@@ -1,0 +1,25 @@
+{
+  "session_id": "shapes_square_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/shapes/square/square__shape-clean__20260507T010618.wav",
+      "expected": "square",
+      "notes": "shape|clean",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/square/square__shape-false_positive__20260507T010647.wav",
+      "expected": "square",
+      "notes": "shape|false_positive",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/square/square__shape-fast__20260507T010637.wav",
+      "expected": "square",
+      "notes": "shape|fast",
+      "category": "shapes"
+    }
+  ]
+}

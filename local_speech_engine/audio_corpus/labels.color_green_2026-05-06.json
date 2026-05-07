@@ -1,0 +1,49 @@
+{
+  "session_id": "color_green_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/colors/green/green__single_word-clean__20260506T160520.wav",
+      "expected": "green",
+      "notes": "single_word|clean",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/green/green__single_word-cutoff_end__20260506T160737.wav",
+      "expected": "green",
+      "notes": "single_word|cutoff_end",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/green/green__single_word-cutoff_start__20260506T160958.wav",
+      "expected": "green",
+      "notes": "single_word|cutoff_start",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/green/green__single_word-false_positive__20260506T161017.wav",
+      "expected": "green",
+      "notes": "single_word|false_positive",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/green/green__single_word-fast__20260506T160540.wav",
+      "expected": "green",
+      "notes": "single_word|fast",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/green/green__single_word-quiet__20260506T160618.wav",
+      "expected": "green",
+      "notes": "single_word|quiet",
+      "category": "colors"
+    },
+    {
+      "filename": "commands/colors/green/green__single_word-sloppy__20260506T160632.wav",
+      "expected": "green",
+      "notes": "single_word|sloppy",
+      "category": "colors"
+    }
+  ]
+}

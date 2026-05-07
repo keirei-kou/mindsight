@@ -1,0 +1,25 @@
+{
+  "session_id": "shapes_wavy_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/shapes/wavy/wavy__shape-clean__20260507T012501.wav",
+      "expected": "wavy",
+      "notes": "shape|clean",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/wavy/wavy__shape-false_positive__20260507T012521.wav",
+      "expected": "wavy",
+      "notes": "shape|false_positive",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/wavy/wavy__shape-fast__20260507T012510.wav",
+      "expected": "wavy",
+      "notes": "shape|fast",
+      "category": "shapes"
+    }
+  ]
+}

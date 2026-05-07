@@ -1,0 +1,19 @@
+{
+  "session_id": "shapes_rectangle_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/shapes/rectangle/rectangle__shape-clean__20260507T012114.wav",
+      "expected": "rectangle",
+      "notes": "shape|clean",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/rectangle/rectangle__shape-fast__20260507T012123.wav",
+      "expected": "rectangle",
+      "notes": "shape|fast",
+      "category": "shapes"
+    }
+  ]
+}

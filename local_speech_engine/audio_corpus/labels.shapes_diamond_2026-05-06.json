@@ -1,0 +1,25 @@
+{
+  "session_id": "shapes_diamond_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/shapes/diamond/diamond__shape-clean__20260507T012242.wav",
+      "expected": "diamond",
+      "notes": "shape|clean",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/diamond/diamond__shape-false_positive__20260507T012335.wav",
+      "expected": "diamond",
+      "notes": "shape|false_positive",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/diamond/diamond__shape-fast__20260507T012302.wav",
+      "expected": "diamond",
+      "notes": "shape|fast",
+      "category": "shapes"
+    }
+  ]
+}

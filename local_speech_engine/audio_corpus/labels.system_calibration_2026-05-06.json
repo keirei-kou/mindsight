@@ -1,0 +1,19 @@
+{
+  "session_id": "system_calibration_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/other/calibration/calibration__system-clean__20260507T024251.wav",
+      "expected": "calibration",
+      "notes": "system|clean",
+      "category": "other"
+    },
+    {
+      "filename": "commands/other/calibration/calibration__system-fast__20260507T024300.wav",
+      "expected": "calibration",
+      "notes": "system|fast",
+      "category": "other"
+    }
+  ]
+}

@@ -1,11 +1,56 @@
 [
   {
     "id": "sample_20260505T211430353679Z_2d1ac174",
-    "file": "commands/colors/red__single_word-clean__001.wav",
+    "file": "commands/colors/red/red__single_word-clean__001.wav",
     "expected": "red",
     "type": "command",
     "category": "colors",
     "notes": "single_word|clean",
     "created_at": "2026-05-05T21:14:30.353679Z"
+  },
+  {
+    "id": "sample_20260506T154356568319Z_e1226462",
+    "file": "commands/colors/red/red__single_word-fast__001.wav",
+    "expected": "red",
+    "type": "command",
+    "category": "colors",
+    "notes": "single_word|fast",
+    "created_at": "2026-05-06T15:43:56.568319Z"
+  },
+  {
+    "id": "sample_20260506T154453540651Z_40f151c5",
+    "file": "commands/colors/red/greg__single_word-quiet__001.wav",
+    "expected": "greg",
+    "type": "command",
+    "category": "colors",
+    "notes": "single_word|quiet",
+    "created_at": "2026-05-06T15:44:53.540651Z"
+  },
+  {
+    "id": "sample_20260506T154519837321Z_cc08dc61",
+    "file": "commands/colors/red/brad__single_word-sloppy__001.wav",
+    "expected": "brad",
+    "type": "command",
+    "category": "colors",
+    "notes": "single_word|sloppy",
+    "created_at": "2026-05-06T15:45:19.837321Z"
+  },
+  {
+    "id": "sample_20260506T154731199487Z_6cc05617",
+    "file": "commands/colors/red/red__single_word-false_positive__001.wav",
+    "expected": "red",
+    "type": "command",
+    "category": "colors",
+    "notes": "single_word|false_positive",
+    "created_at": "2026-05-06T15:47:31.199487Z"
+  },
+  {
+    "id": "sample_20260506T154848277357Z_84d11994",
+    "file": "commands/colors/blue/blue__single_word-clean__20260506T154843.wav",
+    "expected": "blue",
+    "type": "command",
+    "category": "colors",
+    "notes": "single_word|clean",
+    "created_at": "2026-05-06T15:48:48.277357Z"
   }
 ]

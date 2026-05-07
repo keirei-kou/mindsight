@@ -1,0 +1,25 @@
+{
+  "session_id": "shapes_oval_2026-05-06",
+  "mode": "command",
+  "auto_label_by_order": false,
+  "files": [
+    {
+      "filename": "commands/shapes/oval/oval__shape-clean__20260507T010442.wav",
+      "expected": "oval",
+      "notes": "shape|clean",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/oval/oval__shape-false_positive__20260507T010411.wav",
+      "expected": "oval",
+      "notes": "shape|false_positive",
+      "category": "shapes"
+    },
+    {
+      "filename": "commands/shapes/oval/oval__shape-fast__20260507T010426.wav",
+      "expected": "oval",
+      "notes": "shape|fast",
+      "category": "shapes"
+    }
+  ]
+}
