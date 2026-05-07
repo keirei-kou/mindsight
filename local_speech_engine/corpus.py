@@ -216,6 +216,172 @@ def delete_recording_segment(
     }
 
 
+def resolve_corpus_wav(filename: str | None, corpus_dir: Path = DEFAULT_CORPUS_DIR) -> Path:
+    if not filename or not str(filename).strip():
+        raise CorpusError(
+            code="corpus_sample_missing",
+            message="No corpus WAV filename was provided.",
+            setup_hint="Pass a saved corpus sample path relative to local_speech_engine/audio_corpus.",
+        )
+
+    candidate = Path(str(filename).strip())
+    if not candidate.is_absolute():
+        candidate = corpus_dir / candidate
+
+    resolved = candidate.resolve()
+    corpus_root = corpus_dir.resolve()
+    if not resolved.is_relative_to(corpus_root):
+        raise CorpusError(
+            code="corpus_sample_outside_corpus",
+            message="Corpus samples can only be deleted from local_speech_engine/audio_corpus.",
+            setup_hint="Pass a corpus-relative WAV path from the saved sample metadata.",
+            details={"path": str(resolved), "corpus_dir": str(corpus_root)},
+        )
+
+    if not resolved.exists() or not resolved.is_file():
+        raise CorpusError(
+            code="corpus_sample_not_found",
+            message=f"Corpus WAV sample was not found: {resolved.name}",
+            setup_hint="Run the corpus audit to find stale labels before deleting samples.",
+            details={"path": str(resolved)},
+        )
+
+    if resolved.suffix.lower() != ".wav":
+        raise CorpusError(
+            code="corpus_sample_not_wav",
+            message="Only .wav corpus samples can be deleted through the corpus delete command.",
+            setup_hint="Pass a corpus-relative WAV path.",
+            details={"path": str(resolved)},
+        )
+
+    return resolved
+
+
+def _load_label_payload(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8") or "[]")
+    except json.JSONDecodeError as error:
+        raise CorpusError(
+            code="labels_json_invalid",
+            message=f"Corpus labels file is not valid JSON: {path}",
+            setup_hint="Fix the labels file before deleting corpus samples.",
+            details={"path": str(path), "error": str(error)},
+        ) from error
+
+
+def _write_label_payload(payload: Any, path: Path) -> None:
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
+def _candidate_label_paths(
+    *,
+    corpus_dir: Path,
+    labels_path: Path | None,
+    label_file: str | None,
+    session_id: str | None,
+) -> list[Path]:
+    if label_file and str(label_file).strip():
+        candidate = Path(str(label_file).strip())
+        if not candidate.is_absolute():
+            candidate = corpus_dir / candidate.name
+        resolved = candidate.resolve()
+        corpus_root = corpus_dir.resolve()
+        if not resolved.is_relative_to(corpus_root):
+            raise CorpusError(
+                code="label_file_outside_corpus",
+                message="Corpus label files must be inside local_speech_engine/audio_corpus.",
+                setup_hint="Pass a labels JSON filename, not an arbitrary path.",
+                details={"path": str(resolved), "corpus_dir": str(corpus_root)},
+            )
+        return [resolved]
+
+    if session_id and str(session_id).strip():
+        return [_session_labels_path(corpus_dir, str(session_id).strip())]
+
+    if labels_path is not None:
+        return [labels_path]
+
+    paths = [corpus_dir / "labels.json"]
+    paths.extend(sorted(path for path in corpus_dir.glob("labels.*.json") if path.name != "labels.example.json"))
+    seen: set[Path] = set()
+    existing: list[Path] = []
+    for path in paths:
+        if path in seen or not path.exists():
+            continue
+        seen.add(path)
+        existing.append(path)
+    return existing
+
+
+def _remove_label_entry(payload: Any, relative_file: str) -> tuple[Any, int]:
+    if isinstance(payload, list):
+        next_items = [
+            item for item in payload
+            if not (isinstance(item, dict) and str(item.get("file") or item.get("filename") or "").strip() == relative_file)
+        ]
+        return next_items, len(payload) - len(next_items)
+
+    if isinstance(payload, dict):
+        for key in ("files", "samples"):
+            if isinstance(payload.get(key), list):
+                next_payload = dict(payload)
+                current_items = payload[key]
+                next_items = [
+                    item for item in current_items
+                    if not (isinstance(item, dict) and str(item.get("filename") or item.get("file") or "").strip() == relative_file)
+                ]
+                next_payload[key] = next_items
+                return next_payload, len(current_items) - len(next_items)
+
+    return payload, 0
+
+
+def delete_corpus_sample(
+    filename: str | None,
+    *,
+    corpus_dir: Path = DEFAULT_CORPUS_DIR,
+    labels_path: Path | None = None,
+    label_file: str | None = None,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    resolved = resolve_corpus_wav(filename, corpus_dir)
+    relative_file = resolved.relative_to(corpus_dir.resolve()).as_posix()
+    candidates = _candidate_label_paths(
+        corpus_dir=corpus_dir,
+        labels_path=labels_path,
+        label_file=label_file,
+        session_id=session_id,
+    )
+
+    changed: list[dict[str, Any]] = []
+    for path in candidates:
+        if not path.exists():
+            continue
+        payload = _load_label_payload(path)
+        next_payload, removed = _remove_label_entry(payload, relative_file)
+        if removed:
+            _write_label_payload(next_payload, path)
+            changed.append({"label_file": path.name, "removed_entries": removed})
+
+    if not changed:
+        raise CorpusError(
+            code="corpus_label_not_found",
+            message=f"No corpus label entry was found for: {relative_file}",
+            setup_hint="Run the corpus audit to reconcile labels before deleting the sample.",
+            details={"file": relative_file, "label_files_checked": [path.name for path in candidates]},
+        )
+
+    resolved.unlink()
+    return {
+        "filename": resolved.name,
+        "file": relative_file,
+        "deleted": True,
+        "path": str(resolved),
+        "label_file": changed[0]["label_file"],
+        "label_files": changed,
+    }
+
+
 def normalize_sample_type(value: str | None) -> str:
     sample_type = str(value or "command").strip().lower()
     if sample_type not in VALID_SAMPLE_TYPES:
@@ -310,7 +476,10 @@ def save_segment_to_corpus(
         payload["auto_label_by_order"] = bool(payload.get("auto_label_by_order", False))
         payload["files"] = sorted(files, key=lambda item: str(item.get("filename") or ""))
         _write_session_labels(payload, session_labels_path)
-        return dict(sample)
+        sample_payload = dict(sample)
+        sample_payload["label_file"] = session_labels_path.name
+        sample_payload["source_filename"] = source_path.name
+        return sample_payload
 
     labels = load_labels(resolved_labels_path)
     existing = next((label for label in labels if label.get("file") == relative_file), None)
@@ -347,4 +516,7 @@ def save_segment_to_corpus(
 
     labels.sort(key=lambda label: str(label.get("created_at") or ""))
     write_labels(labels, resolved_labels_path)
-    return dict(sample)
+    sample_payload = dict(sample)
+    sample_payload["label_file"] = resolved_labels_path.name
+    sample_payload["source_filename"] = source_path.name
+    return sample_payload

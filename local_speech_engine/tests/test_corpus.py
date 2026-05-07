@@ -7,7 +7,13 @@ import unittest
 import wave
 from pathlib import Path
 
-from local_speech_engine.corpus import CorpusError, delete_recording_segment, load_labels, save_segment_to_corpus
+from local_speech_engine.corpus import (
+    CorpusError,
+    delete_corpus_sample,
+    delete_recording_segment,
+    load_labels,
+    save_segment_to_corpus,
+)
 
 
 TEST_ROOT = Path(__file__).resolve().parent / "_corpus_test_data"
@@ -150,6 +156,78 @@ class CorpusTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, "source_outside_recordings")
         self.assertTrue(outside.exists())
+
+    def test_delete_corpus_sample_removes_wav_and_legacy_label_entry(self) -> None:
+        _, corpus_dir, labels_path = reset_test_root()
+        sample = make_test_wav(corpus_dir / "commands" / "colors" / "red_001.wav")
+        labels_path.write_text(json.dumps([
+            {"file": "commands/colors/red_001.wav", "expected": "red"},
+            {"file": "commands/colors/blue_001.wav", "expected": "blue"},
+        ]), encoding="utf-8")
+
+        result = delete_corpus_sample(
+            "commands/colors/red_001.wav",
+            corpus_dir=corpus_dir,
+            labels_path=labels_path,
+        )
+
+        labels = json.loads(labels_path.read_text(encoding="utf-8"))
+        self.assertFalse(sample.exists())
+        self.assertTrue(result["deleted"])
+        self.assertEqual(result["file"], "commands/colors/red_001.wav")
+        self.assertEqual(result["label_file"], "labels.json")
+        self.assertEqual(len(labels), 1)
+        self.assertEqual(labels[0]["file"], "commands/colors/blue_001.wav")
+
+    def test_delete_corpus_sample_removes_session_label_entry(self) -> None:
+        _, corpus_dir, _ = reset_test_root()
+        sample = make_test_wav(corpus_dir / "commands" / "colors" / "red_001.wav")
+        session_labels_path = corpus_dir / "labels.colors_red.json"
+        session_labels_path.write_text(json.dumps({
+            "session_id": "colors_red",
+            "mode": "command",
+            "auto_label_by_order": False,
+            "files": [
+                {"filename": "commands/colors/red_001.wav", "expected": "red"},
+                {"filename": "commands/colors/blue_001.wav", "expected": "blue"},
+            ],
+        }), encoding="utf-8")
+
+        result = delete_corpus_sample(
+            "commands/colors/red_001.wav",
+            corpus_dir=corpus_dir,
+            session_id="colors_red",
+        )
+
+        payload = json.loads(session_labels_path.read_text(encoding="utf-8"))
+        self.assertFalse(sample.exists())
+        self.assertEqual(result["label_file"], "labels.colors_red.json")
+        self.assertEqual(len(payload["files"]), 1)
+        self.assertEqual(payload["files"][0]["filename"], "commands/colors/blue_001.wav")
+
+    def test_delete_corpus_sample_rejects_traversal(self) -> None:
+        _, corpus_dir, labels_path = reset_test_root()
+        outside = make_test_wav(corpus_dir.parent / "outside.wav")
+        labels_path.write_text(json.dumps([
+            {"file": "commands/colors/red_001.wav", "expected": "red"},
+        ]), encoding="utf-8")
+
+        with self.assertRaises(CorpusError) as context:
+            delete_corpus_sample("../outside.wav", corpus_dir=corpus_dir, labels_path=labels_path)
+
+        self.assertEqual(context.exception.code, "corpus_sample_outside_corpus")
+        self.assertTrue(outside.exists())
+        self.assertEqual(len(json.loads(labels_path.read_text(encoding="utf-8"))), 1)
+
+    def test_delete_recording_segment_does_not_delete_corpus_sample(self) -> None:
+        recordings_dir, corpus_dir, _ = reset_test_root()
+        recording = make_test_wav(recordings_dir / "red_001.wav")
+        corpus_sample = make_test_wav(corpus_dir / "commands" / "colors" / "red_001.wav")
+
+        delete_recording_segment(recording.name, recordings_dir=recordings_dir)
+
+        self.assertFalse(recording.exists())
+        self.assertTrue(corpus_sample.exists())
 
     def test_save_segment_to_corpus_writes_session_labels_when_session_id_provided(self) -> None:
         recordings_dir, corpus_dir, labels_path = reset_test_root()

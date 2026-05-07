@@ -284,6 +284,10 @@ function summarizeEvent(event) {
     return event.message || "corpus sample error";
   }
 
+  if (event.type === "corpus_sample_deleted") {
+    return `corpus sample deleted / ${formatValue(event.file)}`;
+  }
+
   if (event.type === "recording_segment_deleted") {
     return `recording segment deleted / ${formatValue(event.filename)}`;
   }
@@ -553,19 +557,42 @@ export function LocalVadPanel() {
     } else if (event.type === "corpus_sample_saved") {
       setCorpusStatus("ready");
       const sampleFile = event.sample?.file || event.sample?.filename || "";
+      const sampleLabelFile = event.sample?.label_file || "";
       setCorpusMessage(`Saved ${sampleFile || "labeled sample"}.`);
       const savedFilename = getBasename(sampleFile);
-      if (savedFilename) {
-        setSegmentLabelState(savedFilename, {
+      const sourceFilename = event.sample?.source_filename || savedFilename;
+      if (sourceFilename) {
+        setSegmentLabelState(sourceFilename, {
           expected: event.sample?.expected || "",
           sampleType: event.sample?.type || event.sample?.mode || "command",
           category: event.sample?.category || "other",
           notes: event.sample?.notes || "",
+          corpusFile: sampleFile,
+          corpusLabelFile: sampleLabelFile,
           corpusSaved: true,
           corpusStatus: "saved",
           corpusError: "",
         });
       }
+    } else if (event.type === "corpus_sample_deleted") {
+      setCorpusStatus("ready");
+      setCorpusMessage(`Deleted corpus sample ${event.file || event.filename}.`);
+      setSegments((currentSegments) => currentSegments.map((segment) => {
+        const matchesSavedCorpus = segment.corpusFile && segment.corpusFile === event.file;
+        const matchesFilename = !segment.corpusFile && event.filename && segment.filename === event.filename;
+        if (!matchesSavedCorpus && !matchesFilename) {
+          return segment;
+        }
+
+        return {
+          ...segment,
+          corpusFile: "",
+          corpusLabelFile: "",
+          corpusSaved: false,
+          corpusStatus: segment.expected ? "pending" : "needs_review",
+          corpusError: "",
+        };
+      }));
     } else if (event.type === "corpus_sample_error") {
       setCorpusStatus("error");
       setCorpusMessage([event.message, event.setup_hint].filter(Boolean).join(" "));
@@ -858,6 +885,35 @@ export function LocalVadPanel() {
     }
   };
 
+  const deleteCorpusSample = (segment) => {
+    if (!segment?.corpusFile) {
+      setCorpusStatus("error");
+      setCorpusMessage("No saved corpus sample is linked to this row.");
+      return;
+    }
+
+    try {
+      setCorpusStatus("saving");
+      setCorpusMessage(`Deleting corpus sample ${segment.corpusFile}...`);
+      setSegmentLabelState(segment.filename, {
+        corpusStatus: "deleting",
+        corpusError: "",
+      });
+      clientRef.current?.deleteCorpusSample({
+        file: segment.corpusFile,
+        labelFile: segment.corpusLabelFile || "",
+        sessionId: segment.sessionId || "",
+      });
+    } catch (error) {
+      setCorpusStatus("error");
+      setCorpusMessage(error instanceof Error ? error.message : "Unable to delete corpus sample.");
+      setSegmentLabelState(segment.filename, {
+        corpusStatus: "needs_review",
+        corpusError: error instanceof Error ? error.message : "Unable to delete corpus sample.",
+      });
+    }
+  };
+
   const toggleIgnoreSegment = (segment) => {
     if (!segment) {
       return;
@@ -1000,6 +1056,8 @@ export function LocalVadPanel() {
       category: segment.category || "other",
       notes: segment.notes || "",
       sessionId: segment.sessionId || "",
+      corpusFile: segment.corpusFile || "",
+      corpusLabelFile: segment.corpusLabelFile || "",
       corpusStatus: segment.corpusStatus || (segment.corpusSaved ? "saved" : segment.expected ? "pending" : "needs_review"),
       corpusError: segment.corpusError || "",
       result,
@@ -1430,7 +1488,7 @@ export function LocalVadPanel() {
                 <col style={{ width: "110px" }} />
                 <col style={{ width: "78px" }} />
                 <col style={{ width: "100px" }} />
-                <col style={{ width: "190px" }} />
+                <col style={{ width: "310px" }} />
               </colgroup>
               <thead>
                 <tr style={{ background: LAB.primarySoft, color: LAB.text, textAlign: "left" }}>
@@ -1483,7 +1541,7 @@ export function LocalVadPanel() {
                     <td style={{ ...capturedCellStyle, color: row.result.color, fontWeight: 850 }}>{row.result.label}</td>
                     <td style={{ ...capturedCellStyle, color: getStatusColor(row.corpusStatus), fontWeight: 850 }} title={row.corpusError || row.corpusStatus}>{row.corpusStatus}</td>
                     <td style={{ ...capturedCellStyle }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                         <button
                           type="button"
                           title={saveTitle}
@@ -1509,6 +1567,7 @@ export function LocalVadPanel() {
                         </button>
                         <button
                           type="button"
+                          title="Delete only the raw WAV from local_speech_engine/recordings."
                           onClick={(event) => {
                             event.stopPropagation();
                             deleteRecordingSegment(row.segment);
@@ -1516,8 +1575,22 @@ export function LocalVadPanel() {
                           disabled={!isConnected || row.corpusStatus === "deleting"}
                           style={{ minHeight: "28px", background: LAB.error, color: "#ffffff", border: `1px solid ${LAB.error}`, borderRadius: "5px", padding: "4px 7px", font: "inherit", fontSize: "0.7rem", fontWeight: 750, cursor: !isConnected || row.corpusStatus === "deleting" ? "not-allowed" : "pointer", opacity: !isConnected || row.corpusStatus === "deleting" ? 0.62 : 1 }}
                         >
-                          Delete
+                          Delete recording
                         </button>
+                        {row.corpusFile && (
+                          <button
+                            type="button"
+                            title="Delete the saved corpus WAV and its label entry."
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              deleteCorpusSample(row.segment);
+                            }}
+                            disabled={!isConnected || row.corpusStatus === "deleting"}
+                            style={{ minHeight: "28px", background: LAB.surfaceMuted, color: LAB.error, border: `1px solid ${LAB.error}`, borderRadius: "5px", padding: "4px 7px", font: "inherit", fontSize: "0.7rem", fontWeight: 750, cursor: !isConnected || row.corpusStatus === "deleting" ? "not-allowed" : "pointer", opacity: !isConnected || row.corpusStatus === "deleting" ? 0.62 : 1 }}
+                          >
+                            Delete corpus sample
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

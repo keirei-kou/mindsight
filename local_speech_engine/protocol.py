@@ -12,6 +12,8 @@ COMMAND_ALIASES = {
     "stop_voice_note_recording": "stop_voice_note",
     "delete_segment": "delete_recording_segment",
     "delete_recording": "delete_recording_segment",
+    "delete_corpus": "delete_corpus_sample",
+    "delete_corpus_recording": "delete_corpus_sample",
 }
 
 

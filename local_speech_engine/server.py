@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .asr import AsrArbiter, AsrProviderError, AsrRegistry, LocalSpeechConfig
 from .audio_capture import AudioCaptureConfig, SoundDeviceAudioCapture
-from .corpus import CorpusError, delete_recording_segment, save_segment_to_corpus
+from .corpus import CorpusError, delete_corpus_sample, delete_recording_segment, save_segment_to_corpus
 from .protocol import normalize_command
 from .vad_engine import (
     VadConfig,
@@ -723,6 +723,38 @@ class LocalVadService:
                 details={},
             )
 
+    async def delete_corpus_sample(
+        self,
+        *,
+        filename: str | None,
+        label_file: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        resolved_filename = Path(filename or "").name
+        try:
+            deleted = await asyncio.to_thread(
+                delete_corpus_sample,
+                filename,
+                label_file=label_file,
+                session_id=session_id,
+            )
+            self._emit("corpus_sample_deleted", **deleted)
+        except CorpusError as error:
+            self._emit(
+                "corpus_sample_error",
+                filename=resolved_filename,
+                **error.to_event_payload(),
+            )
+        except Exception as error:
+            self._emit(
+                "corpus_sample_error",
+                filename=resolved_filename,
+                code="unexpected_error",
+                message=str(error),
+                setup_hint="Check the local speech engine console for details.",
+                details={},
+            )
+
     def _emit_asr_provider_status(self) -> None:
         self._emit(
             "asr_provider_status",
@@ -871,6 +903,12 @@ async def vad_websocket(websocket: WebSocket) -> None:
             elif command == "delete_recording_segment":
                 await service.delete_recording_segment(
                     payload.get("filename") or payload.get("source_filename") or payload.get("path")
+                )
+            elif command == "delete_corpus_sample":
+                await service.delete_corpus_sample(
+                    filename=payload.get("filename") or payload.get("file") or payload.get("path"),
+                    label_file=payload.get("label_file"),
+                    session_id=payload.get("session_id"),
                 )
             else:
                 service._emit("error", message=f"Unknown local VAD command: {command}")
