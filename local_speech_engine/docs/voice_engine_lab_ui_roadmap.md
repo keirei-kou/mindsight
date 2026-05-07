@@ -1,6 +1,6 @@
 # Voice Engine Lab UI Roadmap
 
-This document captures future Voice Engine Lab UI upgrades for local ASR provider loading, batch arbitration, and corpus-scale benchmarking. It is a planning document only. Do not implement these UI upgrades until corpus collection and script-based benchmarking are stable.
+This document captures future Voice Engine Lab UI upgrades for local ASR provider loading, batch arbitration, corpus-scale benchmarking, and local speech calibration review. It is a planning document only. Do not implement these UI upgrades until corpus collection and script-based benchmarking are stable.
 
 ## Current Lab Capabilities
 
@@ -20,6 +20,7 @@ The lab is intentionally separate from TrainingRoom. It is the diagnostic and co
 - Arbitration is mostly scoped to one selected or latest audio segment.
 - Corpus-scale provider comparison currently belongs in scripts and benchmark outputs, not the UI.
 - There is no UI panel yet for running batch arbitration across all saved WAVs.
+- There is no local review surface yet for teaching PsiLabs that a recurring transcript means a specific command, participant name, action, or `NO_COMMAND`.
 
 ## UI Upgrade A: Load All Providers
 
@@ -89,6 +90,36 @@ Expected metrics:
 
 Disagreement cases should be easy to inspect because they are the most useful samples for arbitration tuning. The panel should make it clear when Vosk, Sherpa, or a future Whisper provider disagree, when one provider is blank, and when arbitration selects a result that does not match the expected label.
 
+## UI Upgrade C: Speech Calibration Review
+
+Add a future calibration/debug popup for recent transcripts. This should be a local-first review surface where users can assign ASR output to intended command semantics without needing an account.
+
+Expected controls:
+
+- Recent transcript list with raw transcript, normalized candidate, provider, confidence, latency, and arbitration decision context when available.
+- Assign transcript to command.
+- Assign transcript to participant name or participant alias for the current session/profile.
+- Assign transcript to an action such as submit, open calibration, go to test, or results.
+- Mark transcript as `NO_COMMAND` so similar noise or incidental speech can be ignored.
+- Edit or delete reviewed mappings.
+- Export speech profile JSON.
+- Import speech profile JSON with conflict review.
+
+Storage direction:
+
+- Guest mode uses local storage only.
+- Local calibration must work without login.
+- Auth remains optional for MVP.
+- Future account sync or private cloud storage may copy a reviewed speech profile across devices.
+- Guest-to-account migration should merge a local profile into an account only after user review.
+
+Safeguards:
+
+- User assignment is required before a transcript becomes a durable mapping.
+- Participant-name aliases remain scoped to the session or personal profile unless explicitly exported/imported.
+- Do not globally auto-promote aliases from personal profiles.
+- A future global candidate pool may exist only with review, frequency thresholds, privacy filtering, and safeguards against rare or sensitive aliases.
+
 ## Recommended Implementation Order
 
 1. Finish initial corpus collection.
@@ -96,7 +127,8 @@ Disagreement cases should be easy to inspect because they are the most useful sa
 3. Ensure batch arbitration works reliably as a script first, building on `local_speech_engine/scripts/benchmark_arbitration.py`.
 4. Stabilize benchmark JSON/CSV output before designing the UI result table.
 5. Add the Corpus Benchmark / Batch Arbitration UI panel after script behavior and result schema are stable.
-6. Later add Whisper/faster-whisper as a third provider and include it in batch evaluation.
+6. Add the Speech Calibration Review popup after transcript/arbitration result shapes are stable enough to review consistently.
+7. Later add Whisper/faster-whisper as a third provider and include it in batch evaluation.
 
 ## Constraints
 
@@ -106,6 +138,8 @@ Disagreement cases should be easy to inspect because they are the most useful sa
 - Do not touch TrainingRoom.
 - Do not add Whisper as part of this UI roadmap task.
 - Keep this lab-focused until the arbitration path has enough corpus evidence.
+- Do not require auth for local speech calibration.
+- Do not auto-promote personal aliases into global command vocabulary.
 
 ## Related Documents
 

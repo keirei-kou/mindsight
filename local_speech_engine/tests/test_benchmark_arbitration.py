@@ -234,6 +234,58 @@ class BenchmarkArbitrationTests(unittest.TestCase):
         self.assertEqual(report["command_match_count"], 3)
         self.assertEqual({row["label_file"] for row in report["rows"]}, set(report["label_files"]))
 
+    def test_benchmark_reports_condition_groups_and_weighted_policy_scores(self) -> None:
+        corpus_dir, labels_path, output_dir = self.reset_test_root()
+        make_test_wav(corpus_dir / "commands" / "numbers" / "one_001.wav")
+        labels_path.write_text(json.dumps([
+            {
+                "file": "commands/colors/red_001.wav",
+                "expected": "red",
+                "type": "command",
+                "category": "colors",
+                "notes": "clean",
+            },
+            {
+                "file": "commands/colors/blue_001.wav",
+                "expected": "blue",
+                "type": "command",
+                "category": "colors",
+                "notes": "cutoff_end",
+            },
+            {
+                "file": "commands/numbers/one_001.wav",
+                "expected": "one",
+                "type": "command",
+                "category": "numbers",
+                "notes": "clean|false_positive",
+            },
+        ]), encoding="utf-8")
+        registry = FakeRegistry([
+            FakeProvider("vosk", {"red_001.wav": "read", "blue_001.wav": "", "one_001.wav": "one"}),
+            FakeProvider("sherpa", {"red_001.wav": "", "blue_001.wav": "", "one_001.wav": ""}),
+        ])
+
+        report = run_benchmark(
+            provider_names=["vosk", "sherpa"],
+            policy_names=["hybrid_default"],
+            labels_path=labels_path,
+            corpus_dir=corpus_dir,
+            output_dir=output_dir,
+            registry=registry,
+            write_reports=False,
+        )
+
+        groups = report["condition_group_summary"]
+        self.assertEqual(groups["usability"]["passed"], 1)
+        self.assertEqual(groups["robustness"]["passed"], 0)
+        self.assertEqual(groups["safety"]["passed"], 1)
+        self.assertAlmostEqual(report["weighted_score"]["score"], 0.85)
+        policy_groups = report["by_policy_condition_group"]["hybrid_default"]["condition_groups"]
+        self.assertEqual(policy_groups["safety"]["passed"], 1)
+        self.assertEqual(report["rows"][4]["condition_group"], "safety")
+        self.assertEqual(report["rows"][4]["note_tags"], ["clean", "false_positive"])
+        self.assertEqual(report["by_provider_condition_group"]["sherpa"]["condition_groups"]["robustness"]["blank_transcript_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -188,6 +188,57 @@ class BenchmarkAsrTests(unittest.TestCase):
         self.assertEqual(report["provider_error_rate"], 1.0)
         self.assertIn("fake provider failed", report["rows"][0]["error"])
 
+    def test_benchmark_runner_reports_condition_groups_and_weighted_score(self) -> None:
+        corpus_dir, labels_path, output_dir = reset_test_root()
+        (corpus_dir / "commands" / "colors" / "blue.wav").write_bytes(b"fake wav")
+        (corpus_dir / "commands" / "numbers").mkdir(parents=True)
+        (corpus_dir / "commands" / "numbers" / "one.wav").write_bytes(b"fake wav")
+        labels_path.write_text(json.dumps([
+            {
+                "file": "commands/colors/red.wav",
+                "expected": "red",
+                "type": "command",
+                "category": "colors",
+                "notes": "clean",
+            },
+            {
+                "file": "commands/colors/blue.wav",
+                "expected": "blue",
+                "type": "command",
+                "category": "colors",
+                "notes": "cutoff_start",
+            },
+            {
+                "file": "commands/numbers/one.wav",
+                "expected": "one",
+                "type": "command",
+                "category": "numbers",
+                "notes": "clean|false_positive",
+            },
+        ]), encoding="utf-8")
+
+        report = run_benchmark(
+            provider_names=["fake"],
+            registry=FakeRegistry(FakeProvider(transcripts={
+                "red.wav": "read",
+                "blue.wav": "",
+                "one.wav": "one",
+            })),
+            labels_path=labels_path,
+            corpus_dir=corpus_dir,
+            output_dir=output_dir,
+            write_reports=False,
+        )
+
+        groups = report["condition_group_summary"]
+        self.assertEqual(groups["usability"]["passed"], 1)
+        self.assertEqual(groups["robustness"]["passed"], 0)
+        self.assertEqual(groups["safety"]["passed"], 1)
+        self.assertAlmostEqual(report["weighted_score"]["score"], 0.85)
+        self.assertEqual(report["rows"][2]["condition_group"], "safety")
+        self.assertEqual(report["rows"][2]["note_tags"], ["clean", "false_positive"])
+        self.assertEqual(report["by_provider_condition_group"]["fake"]["condition_groups"]["robustness"]["blank_transcript_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

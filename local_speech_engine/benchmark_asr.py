@@ -14,7 +14,15 @@ if __package__ in {None, ""}:
 
 from local_speech_engine.asr import AsrProviderError, AsrRegistry, LocalSpeechConfig
 from local_speech_engine.asr_normalization import normalize_asr_text
-from local_speech_engine.corpus import DEFAULT_CORPUS_DIR, DEFAULT_LABELS_PATH, CorpusSample, load_corpus_samples
+from local_speech_engine.benchmark_metrics import benchmark_score_summary, ratio
+from local_speech_engine.corpus import (
+    DEFAULT_CORPUS_DIR,
+    DEFAULT_LABELS_PATH,
+    CorpusSample,
+    condition_group_for_notes,
+    load_corpus_samples,
+    note_tags,
+)
 
 
 ENGINE_ROOT = Path(__file__).resolve().parent
@@ -32,6 +40,9 @@ CSV_FIELDS = [
     "type",
     "mode",
     "category",
+    "condition_group",
+    "notes",
+    "note_tags",
     "expected",
     "normalized_expected",
     "raw_transcript",
@@ -148,6 +159,12 @@ def run_benchmark(
     total_passed = sum(1 for row in rows if row["passed"])
     latencies = [row["latency_ms"] for row in rows if isinstance(row.get("latency_ms"), (int, float))]
     evaluation_stats = _evaluation_stats(rows)
+    score_summary = benchmark_score_summary(
+        rows,
+        passed_key="passed",
+        raw_transcript_key="raw_transcript",
+        error_key="error",
+    )
     report = {
         "timestamp": timestamp,
         "corpus": corpus.stats(),
@@ -165,6 +182,10 @@ def run_benchmark(
         "command_match_count": evaluation_stats["command_match_count"],
         "command_match_rate": evaluation_stats["command_match_rate"],
         "evaluation_stats": evaluation_stats,
+        "score_summary": score_summary,
+        "condition_group_summary": score_summary["condition_groups"],
+        "weighted_score": score_summary["weighted"],
+        "by_provider_condition_group": _provider_condition_group_summary(rows),
         "per_category_accuracy": _per_category_accuracy(rows),
         "average_latency_ms": (sum(latencies) / len(latencies)) if latencies else None,
         "rows": rows,
@@ -196,6 +217,9 @@ def _run_sample(provider: Any, sample: CorpusSample) -> dict[str, Any]:
         "type": sample.sample_type,
         "mode": sample.mode,
         "category": sample.category,
+        "condition_group": condition_group_for_notes(sample.notes),
+        "notes": sample.notes,
+        "note_tags": list(note_tags(sample.notes)),
         "expected": expected,
         "normalized_expected": normalized_expected,
         "raw_transcript": "",
@@ -245,12 +269,12 @@ def _evaluation_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "total_evaluations": total,
         "blank_transcript_count": blank_count,
-        "blank_transcript_rate": _ratio(blank_count, total),
+        "blank_transcript_rate": ratio(blank_count, total),
         "provider_error_count": error_count,
-        "provider_error_rate": _ratio(error_count, total),
+        "provider_error_rate": ratio(error_count, total),
         "command_evaluation_count": len(command_rows),
         "command_match_count": command_match_count,
-        "command_match_rate": _ratio(command_match_count, len(command_rows)),
+        "command_match_rate": ratio(command_match_count, len(command_rows)),
     }
 
 
@@ -264,13 +288,28 @@ def _per_category_accuracy(rows: list[dict[str, Any]]) -> dict[str, dict[str, An
             bucket["passed"] += 1
 
     for bucket in stats.values():
-        bucket["accuracy"] = (bucket["passed"] / bucket["total"]) if bucket["total"] else 0.0
+        bucket["accuracy"] = ratio(bucket["passed"], bucket["total"])
 
     return stats
 
 
-def _ratio(count: int, total: int) -> float:
-    return (count / total) if total else 0.0
+def _provider_condition_group_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    providers = sorted({str(row.get("provider") or "unknown") for row in rows})
+    return {
+        provider: benchmark_score_summary(
+            [row for row in rows if str(row.get("provider") or "unknown") == provider],
+            passed_key="passed",
+            raw_transcript_key="raw_transcript",
+            error_key="error",
+        )
+        for provider in providers
+    }
+
+
+def _csv_value(value: Any) -> Any:
+    if isinstance(value, (list, tuple)):
+        return "|".join(str(item) for item in value)
+    return value
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -278,7 +317,7 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(csv_file, fieldnames=CSV_FIELDS)
         writer.writeheader()
         for row in rows:
-            writer.writerow({field: row.get(field, "") for field in CSV_FIELDS})
+            writer.writerow({field: _csv_value(row.get(field, "")) for field in CSV_FIELDS})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -303,6 +342,11 @@ def main(argv: list[str] | None = None) -> int:
         f"{report['total_passed']}/{report['total_evaluations']} passed "
         f"across {report['total_samples']} samples from {report['label_files_loaded']} label files."
     )
+    weighted = report["weighted_score"].get("score")
+    if weighted is not None:
+        print(f"Weighted condition score: {weighted:.3f}")
+    for group, summary in report["condition_group_summary"].items():
+        print(f"{group}: {summary['passed']}/{summary['total']} passed ({summary['accuracy']:.3f})")
     print(f"JSON: {report['json_path']}")
     print(f"CSV: {report['csv_path']}")
     return 0

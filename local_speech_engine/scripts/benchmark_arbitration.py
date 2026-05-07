@@ -15,7 +15,14 @@ if __package__ in {None, ""}:
 from local_speech_engine.asr import AsrArbiter, AsrProviderError, AsrRegistry, LocalSpeechConfig
 from local_speech_engine.asr.normalization import COMMAND_PROFILE, normalize_asr_text, normalize_profile
 from local_speech_engine.asr.policies import HYBRID_DEFAULT_POLICY, available_policy_names, normalize_policy_name
-from local_speech_engine.corpus import DEFAULT_CORPUS_DIR, DEFAULT_LABELS_PATH, load_corpus_samples
+from local_speech_engine.benchmark_metrics import benchmark_score_summary
+from local_speech_engine.corpus import (
+    DEFAULT_CORPUS_DIR,
+    DEFAULT_LABELS_PATH,
+    condition_group_for_notes,
+    load_corpus_samples,
+    note_tags,
+)
 
 
 ENGINE_ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +38,7 @@ CSV_FIELDS = [
     "sample_path",
     "mode",
     "category",
+    "condition_group",
     "policy_name",
     "expected",
     "normalized_expected",
@@ -48,6 +56,7 @@ CSV_FIELDS = [
     "provider_passed",
     "provider_error",
     "notes",
+    "note_tags",
 ]
 
 
@@ -61,6 +70,8 @@ class ArbitrationSample:
     expected: str
     mode: str
     category: str = ""
+    condition_group: str = ""
+    note_tags: tuple[str, ...] = ()
     notes: str = ""
 
     @property
@@ -180,6 +191,8 @@ def load_arbitration_samples(
                 expected=sample.expected,
                 mode=normalize_profile(sample.mode or COMMAND_PROFILE),
                 category=sample.category,
+                condition_group=condition_group_for_notes(sample.notes),
+                note_tags=note_tags(sample.notes),
                 notes=sample.notes,
             )
         )
@@ -212,6 +225,8 @@ def run_benchmark(
             expected=sample.expected,
             mode=normalize_profile(sample.mode or COMMAND_PROFILE),
             category=sample.category,
+            condition_group=condition_group_for_notes(sample.notes),
+            note_tags=note_tags(sample.notes),
             notes=sample.notes,
         )
         for index, sample in enumerate(corpus.samples)
@@ -276,10 +291,12 @@ def _run_sample(
         "sample_path": str(sample.path),
         "mode": sample.mode,
         "category": sample.category,
+        "condition_group": sample.condition_group,
         "policy_name": policy_name,
         "expected": expected,
         "normalized_expected": normalized_expected,
         "notes": sample.notes,
+        "note_tags": list(sample.note_tags),
     }
 
     try:
@@ -382,13 +399,24 @@ def build_report(
     policy_names: list[str],
     corpus_stats: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    sample_keys = {(row["policy_name"], row["label_file"], row["session_id"], row["sample_index"]) for row in rows}
+    sample_results_by_key: dict[tuple[Any, Any, Any, Any], dict[str, Any]] = {}
+    for row in rows:
+        key = (row["policy_name"], row["label_file"], row["session_id"], row["sample_index"])
+        sample_results_by_key.setdefault(key, row)
+    sample_results = list(sample_results_by_key.values())
+    sample_keys = set(sample_results_by_key)
     arbitration_passed_keys = {
         (row["policy_name"], row["label_file"], row["session_id"], row["sample_index"])
-        for row in rows
+        for row in sample_results
         if row.get("arbitration_passed")
     }
     provider_stats = _provider_runtime_stats(rows)
+    score_summary = benchmark_score_summary(
+        sample_results,
+        passed_key="arbitration_passed",
+        raw_transcript_key="final_text",
+        error_key="provider_error",
+    )
     return {
         "timestamp": report_timestamp(),
         "corpus": corpus_stats or {},
@@ -404,13 +432,18 @@ def build_report(
         "provider_error_rate": provider_stats["provider_error_rate"],
         "command_match_count": provider_stats["command_match_count"],
         "command_match_rate": provider_stats["command_match_rate"],
+        "score_summary": score_summary,
+        "condition_group_summary": score_summary["condition_groups"],
+        "weighted_score": score_summary["weighted"],
         "arbitration": {
             "passed": len(arbitration_passed_keys),
             "total": len(sample_keys),
             "accuracy": _ratio(len(arbitration_passed_keys), len(sample_keys)),
         },
         "by_policy": _policy_summary(rows),
+        "by_policy_condition_group": _policy_condition_group_summary(sample_results),
         "by_provider": _provider_summary(rows),
+        "by_provider_condition_group": _provider_condition_group_summary(rows),
         "by_command": _command_summary(rows),
         "rows": rows,
     }
@@ -453,6 +486,32 @@ def _provider_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         bucket["error_rate"] = _ratio(bucket["errors"], bucket["total"])
         bucket["blank_transcript_rate"] = _ratio(int(bucket.get("blank_transcripts", 0)), bucket["total"])
     return buckets
+
+
+def _policy_condition_group_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    policies = sorted({str(row.get("policy_name") or "unknown") for row in rows})
+    return {
+        policy: benchmark_score_summary(
+            [row for row in rows if str(row.get("policy_name") or "unknown") == policy],
+            passed_key="arbitration_passed",
+            raw_transcript_key="final_text",
+            error_key="provider_error",
+        )
+        for policy in policies
+    }
+
+
+def _provider_condition_group_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    providers = sorted({str(row.get("provider") or "unknown") for row in rows})
+    return {
+        provider: benchmark_score_summary(
+            [row for row in rows if str(row.get("provider") or "unknown") == provider],
+            passed_key="provider_passed",
+            raw_transcript_key="provider_raw_transcript",
+            error_key="provider_error",
+        )
+        for provider in providers
+    }
 
 
 def _command_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -505,7 +564,13 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(csv_file, fieldnames=CSV_FIELDS)
         writer.writeheader()
         for row in rows:
-            writer.writerow({field: row.get(field, "") for field in CSV_FIELDS})
+            writer.writerow({field: _csv_value(row.get(field, "")) for field in CSV_FIELDS})
+
+
+def _csv_value(value: Any) -> Any:
+    if isinstance(value, (list, tuple)):
+        return "|".join(str(item) for item in value)
+    return value
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -541,6 +606,11 @@ def main(argv: list[str] | None = None) -> int:
         f"{arbitration['passed']}/{arbitration['total']} arbitration results passed "
         f"across {report['total_samples']} labeled samples from {report['label_files_loaded']} label files."
     )
+    weighted = report["weighted_score"].get("score")
+    if weighted is not None:
+        print(f"Weighted condition score: {weighted:.3f}")
+    for group, summary in report["condition_group_summary"].items():
+        print(f"{group}: {summary['passed']}/{summary['total']} passed ({summary['accuracy']:.3f})")
     print(f"JSON: {report['json_path']}")
     print(f"CSV: {report['csv_path']}")
     return 0

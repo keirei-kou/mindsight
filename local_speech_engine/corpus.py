@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
 ENGINE_ROOT = Path(__file__).resolve().parent
@@ -17,6 +17,13 @@ DEFAULT_LABELS_PATH = DEFAULT_CORPUS_DIR / "labels.json"
 
 VALID_SAMPLE_TYPES = {"command", "voice_note"}
 COMMAND_CATEGORIES = {"colors", "shapes", "numbers", "other"}
+USABILITY_CONDITION_GROUP = "usability"
+ROBUSTNESS_CONDITION_GROUP = "robustness"
+SAFETY_CONDITION_GROUP = "safety"
+UNSPECIFIED_CONDITION_GROUP = "unspecified"
+PRIMARY_USABILITY_TAGS = frozenset({"clean", "fast", "quiet", "sloppy"})
+ROBUSTNESS_TAGS = frozenset({"cutoff_start", "cutoff_end"})
+SAFETY_TAGS = frozenset({"false_positive", "no_command"})
 _SESSION_ID_RE = re.compile(r"[^a-z0-9_-]+")
 _FILENAME_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 
@@ -65,6 +72,8 @@ class CorpusSample:
             "mode": self.mode,
             "category": self.category,
             "notes": self.notes,
+            "note_tags": list(note_tags(self.notes)),
+            "condition_group": condition_group_for_notes(self.notes),
             "id": self.sample_id,
             "index": self.index,
         }
@@ -124,6 +133,34 @@ def write_labels(labels: list[dict[str, Any]], labels_path: Path | None = None) 
     path = labels_path or DEFAULT_LABELS_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(labels, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
+def note_tags(notes: str | None) -> tuple[str, ...]:
+    raw = str(notes or "").strip().lower()
+    if not raw:
+        return ()
+
+    tags: list[str] = []
+    for part in re.split(r"[|,]+", raw):
+        tag = re.sub(r"\s+", "_", part.strip())
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tuple(tags)
+
+
+def condition_group_for_tags(tags: Iterable[str]) -> str:
+    normalized = {str(tag or "").strip().lower() for tag in tags if str(tag or "").strip()}
+    if normalized & SAFETY_TAGS:
+        return SAFETY_CONDITION_GROUP
+    if normalized & ROBUSTNESS_TAGS:
+        return ROBUSTNESS_CONDITION_GROUP
+    if normalized & PRIMARY_USABILITY_TAGS:
+        return USABILITY_CONDITION_GROUP
+    return UNSPECIFIED_CONDITION_GROUP
+
+
+def condition_group_for_notes(notes: str | None) -> str:
+    return condition_group_for_tags(note_tags(notes))
 
 
 def is_corpus_label_file(path: Path) -> bool:
